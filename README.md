@@ -152,3 +152,7 @@ GitHub Actions → GitHub Pages
 
 > 用 HashRouter（`/#/...`）是因为 GitHub Pages 不支持 SPA 路由回退，
 > hash 路由能让深链接直接分享、刷新不 404。
+
+
+## recap: 
+Built and deployed your JSX reading-notes blog to GitHub Pages at lcf-work.github.io/public-study, with search, category nav, and push-to-deploy via GitHub Actions. 
