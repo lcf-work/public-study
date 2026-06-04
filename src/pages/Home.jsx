@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { STUDIES, CATEGORY_LIST } from "../registry.js";
 
 const SITE_TITLE = "studyspace";
-const SITE_SUB = "读书研习 · 互动式读书笔记与导读";
+const SITE_SUB = "超凡小蜘蛛 读书研习 · 互动式读书笔记与导读";
 
 function matches(study, q) {
   if (!q) return true;
