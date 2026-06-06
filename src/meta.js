@@ -54,6 +54,54 @@ export const STUDIES = {
     date: "2026-06-04",
     tags: ["护城河", "财报分析", "估值", "晨星"],
   },
+  "invest/most-important-thing-marks": {
+    title: "投资最重要的事",
+    subtitle: "The Most Important Thing · Howard Marks",
+    description:
+      "霍华德·马克斯的投资备忘录精粹：第二层思维、价值与价格、风险控制、周期钟摆、逆向投资与防御取胜。",
+    date: "2026-06-05",
+    tags: ["霍华德·马克斯", "第二层思维", "风险控制", "周期"],
+  },
+  "invest/poor-charlie-munger": {
+    title: "穷查理宝典",
+    subtitle: "Poor Charlie's Almanack · Charlie Munger",
+    description:
+      "查理·芒格的多学科思维格栅：逆向思考、误判心理、能力圈、耐心、好生意，以及如何持续避免愚蠢。",
+    date: "2026-06-05",
+    tags: ["芒格", "多学科思维", "误判心理", "能力圈"],
+  },
+  "invest/AH_premium_analysis": {
+    title: "A/H 溢价反转：中芯 vs 澜起",
+    subtitle: "SMIC vs Montage · 数据截至 2026 年 6 月",
+    description:
+      "对比中芯国际与澜起科技的 A/H 股同股不同价：一个 A 股显著溢价，一个 H 股反向溢价，拆解定价权变化。",
+    date: "2026-06-05",
+    tags: ["A/H股", "中芯国际", "澜起科技", "硬科技"],
+  },
+  "invest/AH_premium_4way": {
+    title: "A/H 溢价光谱：四只 AI 硬件股",
+    subtitle: "中芯国际 · 长飞光纤 · 胜宏科技 · 澜起科技",
+    description:
+      "把四只 AI 硬件 A+H 股排成溢价光谱，观察 A 股溢价、H 股倒挂、流动性、制裁约束与盈利质量的分化。",
+    date: "2026-06-05",
+    tags: ["A/H股", "AI硬件", "溢价光谱", "港股"],
+  },
+  "invest/stock-operator-guide": {
+    title: "股票作手回忆录 · 互动导读",
+    subtitle: "Reminiscences of a Stock Operator · Edwin Lefèvre",
+    description:
+      "以杰西·利弗莫尔为原型的投机经典导读：读盘、坐功、大势、时机、顺势加仓、止损，以及投机者与人性的永恒博弈。",
+    date: "2026-06-06",
+    tags: ["利弗莫尔", "投机", "趋势交易", "读盘"],
+  },
+  "invest/股票作手回忆录_互动导读_点评版": {
+    title: "股票作手回忆录 · 点评版导读",
+    subtitle: "彼得·林奇点评版 · Jesse Livermore",
+    description:
+      "基于彼得·林奇点评版梳理全书五幕结构：行情会说话、大势与坐功、希望和恐惧、独立思考、操纵真相与交易法则。",
+    date: "2026-06-06",
+    tags: ["利弗莫尔", "彼得·林奇", "交易心理", "坐功"],
+  },
   "history/zhougong": {
     title: "周公辅政",
     subtitle: "武王克殷 · 摄政平叛 · 还政成王",
