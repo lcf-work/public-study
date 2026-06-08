@@ -102,6 +102,14 @@ export const STUDIES = {
     date: "2026-06-06",
     tags: ["利弗莫尔", "彼得·林奇", "交易心理", "坐功"],
   },
+  "invest/lidaxiao-investment-strategy-guide": {
+    title: "李大霄投资战略 · 互动导读",
+    subtitle: "《李大霄投资战略》第三版 · 余钱投资与核心资产",
+    description:
+      "围绕余钱投资、价值投资、远离杠杆、核心资产、股债跷跷板与 2007–2024 市场喊话，整理成八卷互动导读。",
+    date: "2026-06-08",
+    tags: ["李大霄", "价值投资", "A股", "核心资产", "风险控制"],
+  },
   "history/zhougong": {
     title: "周公辅政",
     subtitle: "武王克殷 · 摄政平叛 · 还政成王",
