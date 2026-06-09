@@ -50,7 +50,7 @@ export const STUDIES = {
     title: "股市真规则",
     subtitle: "The Five Rules for Successful Stock Investing · Pat Dorsey",
     description:
-      "晨星的选股框架：经济护城河、盯自由现金流而非会计利润、按行业看门道、用安全边际估值。含 DCF 演示。",
+      "多尔西的选股框架：经济护城河、盯自由现金流而非会计利润、按行业看门道、用安全边际估值。含 DCF 演示。",
     date: "2026-06-04",
     tags: ["护城河", "财报分析", "估值", "晨星"],
   },
