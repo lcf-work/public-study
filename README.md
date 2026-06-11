@@ -98,6 +98,17 @@ public-study/
    不配置也能用，导航里会直接显示文件夹名 `philosophy`。
 3. `git push` 部署。
 
+### 纯静态 HTML 教程 / Static HTML tutorials
+
+如果内容已经是一套独立的 HTML/CSS/JS 页面（例如
+`content/RL/mc-tutorial/index.html`、`ch1.html` 等），需要两层入口：
+
+1. 保留原静态目录，并在 `vite.config.js` 的 `copyStaticTutorials()` 中复制到 `dist/`，
+   这样 GitHub Pages 能直接访问 `/public-study/RL/mc-tutorial/index.html`。
+2. 额外放一个同名 React 包装页，例如 `content/RL/mc-tutorial.jsx`，用于进入首页卡片、
+   搜索、分类和站内阅读页。
+3. 在 `src/meta.js` 里补分类和 `"RL/mc-tutorial"` 元数据。
+
 ---
 
 ## 🧩 内容文件约定 / Content conventions

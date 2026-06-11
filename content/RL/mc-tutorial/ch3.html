@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第3章 告别上帝视角：MC ε-Greedy 与探索-利用</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/lib.js"></script>
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand" href="index.html">MC 互动教程</a>
+  <a href="ch1.html">第1章 蒙特卡洛预测</a>
+  <a href="ch2.html">第2章 MC Basic 与 Exploring Starts</a>
+  <a class="here" href="ch3.html">第3章 ε-Greedy 与探索-利用</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">第 3 章</span>告别上帝视角：MC ε-Greedy 与探索-利用</h1>
+<p class="lead">
+探索性出发要求把智能体「空投」到任意状态-动作对上重启。模拟器里可以，现实里不行——
+你不能把一台正在学走路的机器人随时抓起来摆到任意姿态。这一章去掉这个假设，代价是直面强化学习最根本的矛盾：
+<strong>探索与利用（exploration vs. exploitation）</strong>。
+</p>
+
+<h2><span class="secno">3.1</span>问题出在「贪婪」上</h2>
+<p>
+第 2 章末尾我们看到：探索性出发之所以必要，是因为<strong>贪婪策略是确定性的</strong>——
+它在每个状态只走一个动作，别的动作永远没有出场机会，估错了也无人翻案。
+既然病根是「确定性」，药方就显而易见：让策略<strong>松一点口</strong>，每个动作都保留一丝被选中的概率。
+这样的策略叫<em class="term">软性策略（soft policy）</em>。
+只要策略是软的，一条足够长的轨迹自己就能跑遍所有 (s,a)——<strong>探索不再依赖「空投」，而是策略的内生能力</strong>。
+</p>
+
+<h2><span class="secno">3.2</span>ε-greedy：在贪婪上撕开一道口子</h2>
+<p>最常用的软性策略是 <em class="term">ε-greedy</em>。设动作共 |𝒜| 个（本章网格 |𝒜|=5），取一个 ε ∈ [0,1]：</p>
+<div class="eq">
+π(a|s) = 1 − ε + ε/|𝒜| &nbsp;（贪婪动作）；&emsp; π(a|s) = ε/|𝒜| &nbsp;（其余每个动作）
+<span class="tag">(3.1)</span>
+</div>
+<p>
+直观读法：先抽一个 [0,1] 均匀随机数，<strong>大于 ε 就照常贪婪；小于 ε 就闭眼乱选一个</strong>（乱选也可能恰好选中贪婪动作，所以贪婪动作的总概率是 1−ε+ε/|𝒜|）。
+ε=0 退化为纯贪婪，ε=1 变成纯随机。无论 ε 多大，贪婪动作的概率永远不低于其他动作——「主见」始终在，只是不再固执。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 3-A</span>ε-greedy 的概率天平</div>
+  <div class="w-body">
+    <p style="margin-top:0">假设在某状态，贪婪动作是「→」。拖动 ε，看五个动作的概率如何此消彼长；点「抽样验证」用 10000 次模拟抽样对照理论值。</p>
+    <div class="controls">
+      <label>ε = <b id="epsAv">0.20</b>
+        <input type="range" id="epsA" min="0" max="100" value="20" style="width:220px"></label>
+      <button id="epsASample">🎲 抽样验证 ×10000</button>
+    </div>
+    <div id="epsABars"></div>
+    <p class="w-tip">注意两个端点：ε=0 时贪婪动作独占 100%；ε=1 时五个动作各 20%——完全随机。
+    ε=0.5 时贪婪动作仍有 60%，「主见」还是明显的。</p>
+  </div>
+</div>
+
+<h2><span class="secno">3.3</span>ε 买到了多少探索能力？</h2>
+<p>
+说软性策略「自己能跑遍所有 (s,a)」，口说无凭。下面把一个 ε-greedy 策略放进 5×5 网格，从左上角出发跑<strong>一条</strong>长轨迹，
+看它的足迹（对应原书图 5.8 的实验）。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 3-B</span>一条轨迹的足迹：探索能力实验</div>
+  <div class="w-body">
+    <p style="margin-top:0">背景策略取「最优策略的 ε-greedy 版」。绿色细线是轨迹（叠得越密越粗），蓝点是出发点。
+    右图是全部 125 个 (s,a) 对各自被访问的次数——<strong>分布均匀与否，就是探索质量的画像</strong>。</p>
+    <div class="controls">
+      <label>ε = <b id="covEv">1.00</b>
+        <input type="range" id="covE" min="0" max="100" value="100" style="width:200px"></label>
+      <span class="sep">|</span>
+      <button id="cov100">走 100 步</button>
+      <button id="cov1000">+1000 步</button>
+      <button id="cov10000">+10000 步</button>
+      <button class="ghost" id="covReset">重置</button>
+      <label><input type="checkbox" id="covHeat"> 热力图</label>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="covGrid" class="grid-canvas"></canvas></div>
+      <div class="wcol">
+        <div class="readout" id="covOut"></div>
+        <canvas id="covHist" class="chart" style="height:170px; margin-top:10px"></canvas>
+        <p class="small">横轴：(s,a) 对编号 0–124；纵轴：访问次数。</p>
+      </div>
+    </div>
+    <p class="w-tip">实验脚本：① ε=1 跑 10000 步：足迹铺满全图，右图的点几乎排成一条水平带——人人有份，探索极强；
+    ② 重置，ε=0.5 跑 10000 步：还是能跑遍，但右图变得参差不齐——有的 (s,a) 被踩了上千次，有的只有个位数；
+    ③ 重置，ε=0.1 跑 10000 步：轨迹明显黏在「最优路线 + 目标格」附近打转，大量 (s,a) 几乎吃不到样本。
+    <strong>ε 越小，探索越偏食；偏食的 (s,a) 上 q 的估计就越不可靠。</strong></p>
+  </div>
+</div>
+
+<h2><span class="secno">3.4</span>MC ε-Greedy 算法</h2>
+<p>
+把 ε-greedy 装进上一章的 MC Exploring Starts，只需改一处：<strong>策略改进时不再输出纯贪婪策略，而是输出 ε-greedy 策略</strong>
+（把式 (3.1) 套在 argmax 动作上）。出发点随便选、首个动作不再强制随机——探索交给策略自己。
+</p>
+<div class="box box-algo"><div class="box-title">📋 算法：MC ε-Greedy（原书算法 5.3，every-visit 版）</div>
+对每条回合：
+<ol>
+  <li>从任意 (s₀, a₀) 出发（<strong>无需</strong>探索性出发），按当前 ε-greedy 策略走 T 步；</li>
+  <li>g ← 0，从末尾倒推 t = T−1, …, 0：g ← γg + r<sub>t+1</sub>；更新 Returns、q(s<sub>t</sub>,a<sub>t</sub>)；</li>
+  <li>改进：a* = argmax<sub>a</sub> q(s<sub>t</sub>,a)，π(·|s<sub>t</sub>) 按式 (3.1) 设为 ε-greedy。</li>
+</ol>
+</div>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 3-C</span>现场训练 MC ε-Greedy（出发点永远固定在左上角！）</div>
+  <div class="w-body">
+    <p style="margin-top:0">每回合从左上角出发走 1000 步——只有这一个出发点，探索全靠 ε。
+    左图显示 q 导出的贪婪策略与价值；右侧曲线照例是「贪婪策略与最优的真实差距」。</p>
+    <div class="controls">
+      <label>ε = <b id="trEv">0.50</b>
+        <input type="range" id="trE" min="1" max="100" value="50" style="width:170px"></label>
+      <label><input type="checkbox" id="trDecay"> ε 随训练衰减（×0.995/回合，下限 0.05）</label>
+      <span class="sep">|</span>
+      <button id="trT1">训练 1 回合</button>
+      <button id="trT10">+10</button>
+      <button id="trT100">+100</button>
+      <button class="ghost" id="trReset">重置</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="trGrid" class="grid-canvas"></canvas></div>
+      <div class="wcol">
+        <div class="readout" id="trOut"></div>
+        <canvas id="trChart" class="chart" style="height:180px; margin-top:10px"></canvas>
+      </div>
+    </div>
+    <p class="w-tip">实验脚本：① 默认 ε=0.5 训练 100 回合：尽管出发点从未变过，差距照样落到 0 附近——
+    对照互动 2-C 实验②（贪婪策略 + 固定出发点 = 卡死），体会软性策略立了多大的功；
+    ② 重置，把 ε 拖到 0.05 再训练 100 回合：常会卡在次优——探索太少，回到了老毛病；
+    ③ 重置，ε=0.5 且勾选「衰减」：先大胆探索、后专心利用，这是实战中最常用的日程表（GLIE）。</p>
+  </div>
+</div>
+
+<h2><span class="secno">3.5</span>天下没有免费的探索：ε 的代价</h2>
+<p>
+ε-greedy 解决了探索，但别忘了：<strong>最后执行任务的策略也是软的</strong>，它每一步都有 ε 的概率「抽风」。
+探索是有价格的，价格挂在价值函数上。下面这个实验对应原书图 5.6/5.7，把价格算给你看。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 3-D</span>给探索定价：ε-greedy 策略的真实价值</div>
+  <div class="w-body">
+    <p style="margin-top:0">取最优贪婪策略，把它「软化」成 ε-greedy（主见方向不变），用模型精确评估其真实价值。
+    勾选「在 ε-greedy 家族内重新寻优」后，会另外算出<strong>该 ε 下最好的</strong> ε-greedy 策略，看它的主见是否还和贪婪最优一致。</p>
+    <div class="controls">
+      <label>ε = <b id="prEv">0.00</b>
+        <input type="range" id="prE" min="0" max="50" value="0" style="width:220px"></label>
+      <label><input type="checkbox" id="prOpt"> 在 ε-greedy 家族内重新寻优</label>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="prGrid" class="grid-canvas"></canvas></div>
+      <div class="wcol"><div class="readout" id="prOut"></div>
+      <p class="small" style="margin-top:10px">箭头长度 ∝ 概率。注意观察<strong>目标格（蓝绿色）</strong>：
+      ε 大到一定程度后，重新寻优的策略会让它「逃离目标」——因为呆在原地时，ε 的抽风迟早把它甩进周围 −10 的禁区，不如跑路。</p></div>
+    </div>
+    <p class="w-tip">实验脚本：① 把 ε 从 0 拖到 0.5，看所有格子的价值一路下沉，目标格跌得最惨（它被禁区包围）；
+    ② 勾选「重新寻优」：ε=0.1 时最优 ε-greedy 策略的主见仍与贪婪最优完全一致（一致性 25/25）；
+    ε≈0.2 起开始变形；ε=0.5 时目标格干脆选择出逃。<strong>结论：想让学到的策略既能探索又不变形，ε 要够小；
+    或者训练时用大 ε、部署时把 ε 摘掉。</strong></p>
+  </div>
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ⑤<span class="tag">MC ε-Greedy 完整训练</span></div>
+  <div class="p-body">
+    <p>在 3×4 网格上跑 MC ε-Greedy（固定出发点、ε-soft 行为策略，每步 step cost −0.1）：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/mc-tutorial/practice</span>
+<span class="cmd">python3 03_mc_epsilon_greedy.py</span></pre>
+    <p>脚本打印最终策略/价值，并保存收敛曲线 <code>03_deltas.png</code>。建议实验：</p>
+    <ul>
+      <li><strong>ε 的两端</strong>：默认 <code>EPS = 0.1</code>。改成 <code>0.5</code>：收敛曲线更吵、回合更长，但所有状态都估得很扎实；
+          改成 <code>0.01</code> 多跑几次：偶尔会学出明显错误的策略——探索不足的随机受害者。</li>
+      <li><strong>ε 衰减</strong>：把 <code>EPS_DECAY = True</code> 打开（每回合 ε ← max(0.05, 0.999·ε)），对比固定 ε=0.5 的最终策略质量。</li>
+      <li><strong>对照实验</strong>：回头跑一次 <code>python3 02_mc_es.py</code> 并把其中 <code>EXPLORING_STARTS = False</code>——
+          同样是固定出发点，ES 失灵而 ε-greedy 健在。两份代码 diff 一下，找出「唯一的本质区别」（提示：行为策略是否软性）。</li>
+    </ul>
+    <p>原始出处：<code>monte_carlo_epsilon_greedy_demo.ipynb</code>。</p>
+  </div>
+</div>
+
+<h2><span class="secno">3.6</span>本章小结与下一站</h2>
+<ul>
+  <li>探索性出发不现实；病根是贪婪策略的确定性，药方是<strong>软性策略</strong>。</li>
+  <li><strong>ε-greedy</strong>：以 1−ε 守主见、以 ε 闭眼乱选。改进步骤里只需把「纯贪婪」换成「ε-greedy」。</li>
+  <li>ε 大 → 探索均匀、样本扎实，但策略本身被探索拖累（价值下沉、甚至主见变形）；
+      ε 小 → 策略接近最优，但探索偏食。<strong>实战折中：ε 先大后小（衰减）。</strong></li>
+  <li>三章连起来看：MC Basic（思想原型）→ MC ES（榨干样本 + 即时改进）→ MC ε-Greedy（自带探索）。
+      每一步都只改动一个部件，这种「换零件」式的演化是读懂 RL 算法家族的正确姿势。</li>
+</ul>
+<div class="box box-think"><div class="box-title">🤔 带走的思考题</div>
+<ol>
+<li>互动 3-B 中 ε=0.5 时访问分布严重不均，但理论上仍保证「每个 (s,a) 被访问无穷多次」。为什么「无穷多次」还不够，我们还在乎均匀性？（提示：同样的总步数预算下，方差花在哪了？）</li>
+<li>训练时用 ε-greedy 收集数据、评估改进的也是这个 ε-greedy 策略，这叫<strong>同策略（on-policy）</strong>学习。能否「用 ε=1 的策略闯荡、却学习纯贪婪策略的价值」？这就是<strong>异策略（off-policy）</strong>的问题——Q-learning 的伏笔。</li>
+<li>MC 永远要等一条（很长的）回合走完才能更新。能不能走一步就学一步？——能。那就是<strong>时序差分（TD）学习</strong>：
+把「实际回报 G」换成「一步奖励 + 对后面的估计」。建议下一步阅读原书第 7 章，配合 demo 仓库的 <code>td_prediction.ipynb</code> 与 <code>SARSA_demo.ipynb</code>。</li>
+</ol>
+</div>
+
+<div class="pager">
+  <a href="ch2.html"><div class="dir">← 上一章</div>第2章 MC Basic 与 Exploring Starts</a>
+  <a class="next" href="index.html"><div class="dir">完成 ✓</div>返回目录（下一步：TD 学习）</a>
+</div>
+<footer>素材：《强化学习的数学原理》§5.4–5.5 · Easy RL §3.4 · monte_carlo_epsilon_greedy_demo.ipynb</footer>
+</main>
+
+<script>
+/* ============ 互动 3-A 概率天平 ============ */
+(function () {
+  const NAMES = ["↑ 上", "→ 右（贪婪）", "↓ 下", "← 左", "○ 原地"];
+  const GREEDY = 1;
+  let sampled = null;
+  function probs() {
+    const e = $("epsA").value / 100;
+    return epsProbs(GREEDY, e);
+  }
+  function render() {
+    const p = probs();
+    const rows = p.map((pi, i) => {
+      const w = (pi * 100).toFixed(1);
+      const main = i === GREEDY;
+      const samp = sampled ? `<span style="color:#b2452f; font-size:12.5px">&nbsp; 抽样频率 ${(sampled[i] * 100).toFixed(1)}%</span>` : "";
+      return `<div style="display:flex; align-items:center; gap:10px; margin:6px 0">
+        <div style="width:110px; text-align:right; font-weight:${main ? 700 : 400}; color:${main ? "#1f7a33" : "#444"}">${NAMES[i]}</div>
+        <div style="flex:1; background:#f0ecf8; border-radius:5px; height:22px; position:relative">
+          <div style="width:${w}%; height:100%; border-radius:5px; background:${main ? "#2e8b57" : "#a98ed6"}"></div>
+          <div style="position:absolute; left:8px; top:0; line-height:22px; font-size:12.5px; color:#222">π = ${pi.toFixed(3)}${samp}</div>
+        </div></div>`;
+    });
+    $("epsABars").innerHTML = rows.join("");
+  }
+  $("epsA").oninput = () => { $("epsAv").textContent = ($("epsA").value / 100).toFixed(2); sampled = null; render(); };
+  $("epsASample").onclick = () => {
+    const p = probs(), cnt = [0, 0, 0, 0, 0], N = 10000;
+    for (let i = 0; i < N; i++) cnt[sampleFrom(p)]++;
+    sampled = cnt.map(c => c / N);
+    render();
+  };
+  render();
+})();
+
+/* ============ 互动 3-B 探索能力 ============ */
+(function () {
+  const env = makeBookEnv({ rForbidden: -10, rBoundary: -1, rTarget: 1 });
+  const OPT = bookValueIteration(env, 0.9);
+  let saCount, trace, steps, cur;
+  function eps() { return $("covE").value / 100; }
+  function reset() {
+    saCount = new Float64Array(125); trace = [0]; steps = 0; cur = 0;
+    draw();
+  }
+  function run(n) {
+    for (let i = 0; i < n; i++) {
+      const a = sampleFrom(epsProbs(OPT.pol[cur], eps()));
+      saCount[cur * 5 + a]++;
+      const [s2] = env.step(cur, a);
+      cur = s2;
+      if (trace.length < 20001) trace.push(cur);
+      steps++;
+    }
+    draw();
+  }
+  function draw() {
+    const heat = new Float64Array(25);
+    for (let s = 0; s < 25; s++) for (let a = 0; a < 5; a++) heat[s] += saCount[s * 5 + a];
+    drawBookGrid($("covGrid"), {
+      trace: $("covHeat").checked ? null : trace,
+      heat: $("covHeat").checked ? heat : null,
+      cell: 66,
+    });
+    lineChart($("covHist"), [{ data: Array.from(saCount), dots: true, color: "rgba(224,122,48,0.8)", label: "各 (s,a) 访问次数" }], { yZero: true });
+    let mn = Infinity, mx = 0, zero = 0;
+    for (const c of saCount) { mn = Math.min(mn, c); mx = Math.max(mx, c); if (c === 0) zero++; }
+    $("covOut").textContent =
+      `已走 ${steps} 步（ε = ${eps().toFixed(2)}）\n` +
+      `(s,a) 访问次数：最多 ${mx}，最少 ${mn === Infinity ? 0 : mn}，未访问 ${zero} / 125\n` +
+      (zero === 0 && steps > 0 ? "✓ 全部 (s,a) 都有样本" + (mx > 20 * Math.max(1, mn) ? "，但分布很不均匀" : "，且分布相当均匀") : "");
+  }
+  $("covE").oninput = () => { $("covEv").textContent = eps().toFixed(2); };
+  $("cov100").onclick = () => run(100);
+  $("cov1000").onclick = () => run(1000);
+  $("cov10000").onclick = () => run(10000);
+  $("covReset").onclick = reset;
+  $("covHeat").onchange = draw;
+  reset();
+})();
+
+/* ============ 互动 3-C MC ε-Greedy 训练器 ============ */
+(function () {
+  const env = makeBookEnv({ rForbidden: -10, rBoundary: -1, rTarget: 1 });
+  const GAMMA = 0.9, T = 1000, START = 0;
+  const OPT = bookValueIteration(env, GAMMA);
+  const optMean = OPT.V.reduce((a, b) => a + b, 0) / 25;
+  let q, retSum, retNum, pol, nEp, gapHist, epsNow;
+
+  function reset() {
+    q = Array.from({ length: 25 }, () => new Float64Array(5));
+    retSum = Array.from({ length: 25 }, () => new Float64Array(5));
+    retNum = Array.from({ length: 25 }, () => new Float64Array(5));
+    pol = new Int8Array(25);
+    for (let s = 0; s < 25; s++) pol[s] = randInt(5);
+    nEp = 0; gapHist = []; epsNow = +$("trE").value / 100;
+    draw();
+  }
+  function episode() {
+    let s = START;
+    const steps = [];
+    for (let t = 0; t < T; t++) {
+      const a = sampleFrom(epsProbs(pol[s], epsNow));
+      const [s2, r] = env.step(s, a);
+      steps.push({ s, a, r });
+      s = s2;
+    }
+    let g = 0;
+    for (let t = steps.length - 1; t >= 0; t--) {
+      g = GAMMA * g + steps[t].r;
+      const st = steps[t];
+      retSum[st.s][st.a] += g; retNum[st.s][st.a]++;
+      q[st.s][st.a] = retSum[st.s][st.a] / retNum[st.s][st.a];
+      let best = -Infinity, ba = 0;
+      for (let x = 0; x < 5; x++) if (q[st.s][x] > best + 1e-12) { best = q[st.s][x]; ba = x; }
+      pol[st.s] = ba;
+    }
+    nEp++;
+    if ($("trDecay").checked) epsNow = Math.max(0.05, epsNow * 0.995);
+  }
+  function gap() {
+    const Vp = bookEvalDet(env, pol, GAMMA);
+    let d = 0;
+    for (let s = 0; s < 25; s++) d += OPT.V[s] - Vp[s];
+    return d / 25;
+  }
+  function run(n) {
+    for (let i = 0; i < n; i++) { episode(); gapHist.push(gap()); }
+    draw();
+  }
+  function draw() {
+    const V = new Float64Array(25);
+    for (let s = 0; s < 25; s++) { let b = -Infinity; for (let a = 0; a < 5; a++) b = Math.max(b, q[s][a]); V[s] = (b === -Infinity ? 0 : b); }
+    drawBookGrid($("trGrid"), { values: V, policy: pol, cell: 66 });
+    lineChart($("trChart"), [{ data: gapHist.length ? gapHist : [optMean], color: "#b2452f", label: "贪婪策略与最优的平均差距" }], { yZero: true, x0: 1 });
+    let cov = 0;
+    for (let s = 0; s < 25; s++) for (let a = 0; a < 5; a++) if (retNum[s][a] > 0) cov++;
+    $("trOut").textContent =
+      `已训练 ${nEp} 回合（每回合 ${T} 步，固定从左上角出发）\n当前 ε = ${epsNow.toFixed(3)}    (s,a) 覆盖率 ${cov}/125\n` +
+      `当前差距：${gapHist.length ? gapHist[gapHist.length - 1].toFixed(3) : "–"}` +
+      (gapHist.length && gapHist[gapHist.length - 1] < 0.01 ? "  ✓ 贪婪策略已最优" : "");
+  }
+  $("trE").oninput = () => { $("trEv").textContent = (+$("trE").value / 100).toFixed(2); epsNow = +$("trE").value / 100; draw(); };
+  $("trT1").onclick = () => run(1);
+  $("trT10").onclick = () => run(10);
+  $("trT100").onclick = () => run(100);
+  $("trReset").onclick = reset;
+  reset();
+})();
+
+/* ============ 互动 3-D 给探索定价 ============ */
+(function () {
+  const env = makeBookEnv({ rForbidden: -10, rBoundary: -1, rTarget: 1 });
+  const GAMMA = 0.9;
+  const OPT = bookValueIteration(env, GAMMA);
+
+  // 在 ε-greedy 策略族内做策略迭代，返回最优「主见」
+  function optimizeWithin(eps) {
+    let pol = Int8Array.from(OPT.pol);
+    for (let k = 0; k < 100; k++) {
+      const probs = [];
+      for (let s = 0; s < 25; s++) probs.push(epsProbs(pol[s], eps));
+      const V = bookEvalStoch(env, probs, GAMMA);
+      const np = new Int8Array(25);
+      let changed = false;
+      for (let s = 0; s < 25; s++) {
+        let best = -Infinity, ba = 0;
+        for (let a = 0; a < 5; a++) {
+          const [s2, r] = env.step(s, a);
+          const qv = r + GAMMA * V[s2];
+          if (qv > best + 1e-12) { best = qv; ba = a; }
+        }
+        np[s] = ba;
+        if (ba !== pol[s]) changed = true;
+      }
+      pol = np;
+      if (!changed) break;
+    }
+    return pol;
+  }
+  function render() {
+    const eps = +$("prE").value / 100;
+    $("prEv").textContent = eps.toFixed(2);
+    const reopt = $("prOpt").checked;
+    const base = reopt ? optimizeWithin(eps) : OPT.pol;
+    const probs = [];
+    for (let s = 0; s < 25; s++) probs.push(epsProbs(base[s], eps));
+    const V = bookEvalStoch(env, probs, GAMMA);
+    drawBookGrid($("prGrid"), { values: V, probs, cell: 66 });
+    const mean = V.reduce((a, b) => a + b, 0) / 25;
+    const tgt = V[BOOK.sid(3, 2)];
+    let consist = 0;
+    for (let s = 0; s < 25; s++) if (base[s] === OPT.pol[s]) consist++;
+    $("prOut").textContent =
+      `ε = ${eps.toFixed(2)}${reopt ? "（家族内重新寻优）" : "（沿用贪婪最优的主见）"}\n` +
+      `全图平均价值：${mean.toFixed(2)}（ε=0 时为 ${ (OPT.V.reduce((a,b)=>a+b,0)/25).toFixed(2) }）\n` +
+      `目标格价值：${tgt.toFixed(2)}\n` +
+      `与贪婪最优策略的一致性：${consist} / 25` +
+      (reopt && consist < 25 ? "  ⚠ 主见已变形" : "");
+  }
+  $("prE").oninput = render;
+  $("prOpt").onchange = render;
+  render();
+})();
+</script>
+</body>
+</html>

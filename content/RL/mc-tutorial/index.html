@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>蒙特卡洛方法 · 互动式强化学习教程</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand here" href="index.html">MC 互动教程</a>
+  <a href="ch1.html">第1章 蒙特卡洛预测</a>
+  <a href="ch2.html">第2章 MC Basic 与 Exploring Starts</a>
+  <a href="ch3.html">第3章 ε-Greedy 与探索-利用</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">互动式强化学习教程</span>蒙特卡洛方法：从数据中学习</h1>
+<p class="lead">
+这是一套<strong>可以在网页里直接把玩</strong>的强化学习教程。它从蒙特卡洛（Monte Carlo, MC）方法讲起——
+这是你遇到的第一类<em class="term">免模型（model-free）</em>算法：不需要知道环境的转移规律，
+只靠和环境互动攒下的「经验」就能学会做事。
+</p>
+<p>
+每一章都包含三类内容：<strong>正文讲解</strong>（生动直觉 + 必要数学）、<strong>互动实验</strong>（紫色面板，拖滑块、点按钮，亲手观察算法行为）、
+<strong>编程实践</strong>（深蓝色面板，提示你在终端运行哪些代码、改哪些参数、观察什么变化）。
+建议按顺序阅读，每遇到一个互动面板都<strong>先动手玩一玩、再继续往下读</strong>。
+</p>
+
+<div class="cards">
+  <a class="card" href="ch1.html">
+    <div class="no">第 1 章</div>
+    <h3>没有地图怎么办：蒙特卡洛预测</h3>
+    <p>从抛硬币和大数定律出发，理解「采样求平均」如何替代模型；亲手在网格世界里估计一个策略的状态价值 V(s)。</p>
+  </a>
+  <a class="card" href="ch2.html">
+    <div class="no">第 2 章</div>
+    <h3>从评估到改进：MC Basic 与 Exploring Starts</h3>
+    <p>把策略迭代中的「模型」抽掉，得到最朴素的 MC 控制算法；探究回合长度与稀疏奖励，学会把一条轨迹「榨干」。</p>
+  </a>
+  <a class="card" href="ch3.html">
+    <div class="no">第 3 章</div>
+    <h3>告别上帝视角：MC ε-Greedy</h3>
+    <p>去掉「探索性出发」这一不现实的假设，用软性策略保证探索；亲手体会探索与利用 (exploration vs. exploitation) 的根本权衡。</p>
+  </a>
+</div>
+
+<h2>使用方法</h2>
+<h3>网页部分</h3>
+<p>纯静态页面，无任何外部依赖。直接用浏览器打开即可；也可以起一个本地服务：</p>
+<pre class="term"><span class="cm"># 任选其一</span>
+<span class="cmd">xdg-open ~/studyspace/RL/mc-tutorial/index.html</span>
+<span class="cm"># 或</span>
+<span class="cmd">cd ~/studyspace/RL/mc-tutorial && python3 -m http.server 8000</span>
+<span class="cm"># 然后访问 http://localhost:8000</span></pre>
+
+<h3>编程实践部分</h3>
+<p>实践脚本在 <code>practice/</code> 目录下（改编自 <code>Reinforcement_learning_tutorial_with_demo</code> 仓库的 notebook，整理为可直接运行、带实验开关的脚本）。只需 numpy 和 matplotlib：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/mc-tutorial/practice</span>
+<span class="cmd">python3 01_mc_prediction.py</span>      <span class="cm"># 第1章：MC 预测</span>
+<span class="cmd">python3 02_mc_es.py</span>              <span class="cm"># 第2章：MC Exploring Starts</span>
+<span class="cmd">python3 03_mc_epsilon_greedy.py</span>  <span class="cm"># 第3章：MC ε-Greedy</span></pre>
+<p>每个脚本顶部都有一块「实验区」常量，正文里的实践环节会提示你改哪些、看什么。</p>
+
+<h2>素材来源与进一步阅读</h2>
+<ul>
+  <li>主线脉络与 5×5 网格世界实验，取自赵世钰<strong>《强化学习的数学原理》第 5 章 Monte Carlo Methods</strong>
+      （本目录 <code>Book-Mathematical-Foundation-of-Reinforcement-Learning/</code>，含 PDF、课件和官方网格世界 Python 环境）。</li>
+  <li>实践代码改编自 <strong>Reinforcement_learning_tutorial_with_demo</strong> 仓库的
+      <code>monte_carlo_demo / monte_carlo_es_demo / monte_carlo_epsilon_greedy_demo</code> 三个 notebook。</li>
+  <li>直觉讲法部分参考<strong>《Easy RL：强化学习教程》</strong>第 3 章「免模型预测与控制」。</li>
+</ul>
+<p class="small">学完三章后，自然的下一步是时序差分（TD）方法——它解决了 MC「必须等回合结束才能学」的痛点，对应原书第 7 章与 demo 仓库的 <code>td_prediction.ipynb / SARSA_demo.ipynb</code>。</p>
+
+<footer>蒙特卡洛互动教程 · 共 3 章 · 生成于 2026-06</footer>
+</main>
+</body>
+</html>

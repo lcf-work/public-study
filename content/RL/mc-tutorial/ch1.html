@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第1章 没有地图怎么办：蒙特卡洛预测</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/lib.js"></script>
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand" href="index.html">MC 互动教程</a>
+  <a class="here" href="ch1.html">第1章 蒙特卡洛预测</a>
+  <a href="ch2.html">第2章 MC Basic 与 Exploring Starts</a>
+  <a href="ch3.html">第3章 ε-Greedy 与探索-利用</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">第 1 章</span>没有地图怎么办：蒙特卡洛预测</h1>
+<p class="lead">
+前置知识：状态、动作、奖励、回报、折扣因子 γ、状态价值 V(s) 的定义。本章回答一个问题——
+<strong>当我们不知道环境的转移规律时，怎么估计一个策略的好坏？</strong>
+</p>
+
+<h2><span class="secno">1.1</span>没有模型，只有经验</h2>
+<p>
+动态规划（值迭代、策略迭代）很强大，但它有一个奢侈的前提：你得知道环境的<em class="term">模型</em>——
+在状态 <span class="math">s</span> 做动作 <span class="math">a</span>，会以多大概率转移到哪个状态、拿到多少奖励，
+即 <span class="math">p(s′|s,a)</span> 和 <span class="math">p(r|s,a)</span>。现实里这个前提常常不成立：
+没人能写出「自动驾驶环境」的转移概率表。
+</p>
+<p>
+《强化学习的数学原理》里有一句很精辟的话，值得抄在这里：
+</p>
+<div class="box box-idea"><div class="box-title">💡 核心哲学</div>
+没有模型，就必须有<strong>数据</strong>；没有数据，就必须有<strong>模型</strong>；两者都没有，就找不到最优策略。
+强化学习中的「数据」，指的是智能体与环境的<strong>交互经验</strong>。
+</div>
+<p>
+打个比方：要评价一家餐厅好不好，有两条路。一是拿到它的全部菜谱和后厨流程（模型），从原理上推算菜的水平；
+二是<strong>多去吃几次，把每次的体验打分，求平均</strong>（数据）。蒙特卡洛方法走的就是第二条路。
+</p>
+<p>
+为什么「求平均」是关键？因为强化学习里我们关心的几乎所有量——状态价值 <span class="math">V(s)</span>、
+动作价值 <span class="math">Q(s,a)</span>——<strong>本质上都是某个随机变量的期望（均值）</strong>。
+所以「估计价值」这个问题，剥到最里面就是一个<em class="term">均值估计</em>问题：
+</p>
+<div class="eq">𝔼[X] ≈ x̄ = (x₁ + x₂ + ⋯ + x<sub>n</sub>) / n<span class="tag">(1.1)</span></div>
+<p>
+模型已知时，期望可以按定义精确算：𝔼[X] = Σ p(x)·x；模型未知时，就抽样取平均。
+支撑这件事的数学定理叫<em class="term">大数定律</em>：样本独立同分布时，样本均值是期望的无偏估计，
+且其方差随样本数 n 增大按 1/n 收缩——<strong>样本越多，估得越准</strong>。来，亲手验证一下。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 1-A</span>抛硬币：感受大数定律</div>
+  <div class="w-body">
+    <p style="margin-top:0">硬币正面记 +1、反面记 −1。真实期望 𝔼[X] = p·1 + (1−p)·(−1)，但「智能体」不知道 p，只能靠抛。
+    多抛几次，看橙色样本点杂乱无章，而紫色的「累计平均」如何咬住红色虚线（真值）。</p>
+    <div class="controls">
+      <label>正面概率 p = <b id="coinPv">0.50</b>
+        <input type="range" id="coinP" min="0" max="100" value="50"></label>
+      <span class="sep">|</span>
+      <button id="coinF1">抛 1 次</button>
+      <button id="coinF10">抛 10 次</button>
+      <button id="coinF100">抛 100 次</button>
+      <button id="coinF1000">抛 1000 次</button>
+      <button class="ghost" id="coinReset">重置</button>
+    </div>
+    <canvas id="coinChart" class="chart" style="height:230px"></canvas>
+    <div class="readout" id="coinOut">还没有样本。先抛几次。</div>
+    <p class="w-tip">试一试：① 只抛 5 次，估计值常常离谱——这就是「样本不足」；② 抛到 2000 次以上，误差稳定地缩小；
+    ③ 把 p 拖到 0.8 再重置重抛，验证对有偏硬币同样成立。</p>
+  </div>
+</div>
+
+<p>
+记住这个画面：<strong>前几十个样本的平均值可能很不可靠，但它终究会收敛</strong>。
+后面所有 MC 算法的可靠性，都建立在这条曲线上；而它早期的抖动，正是 MC 方法「方差大」名声的来源。
+</p>
+
+<h2><span class="secno">1.2</span>回报 G：给一条轨迹打总分</h2>
+<p>
+硬币一次抛掷给一个数；强化学习里，「一次体验」是一整条轨迹（回合，episode）。
+我们用<em class="term">折扣回报</em>给整条轨迹打一个总分：
+</p>
+<div class="eq">G<sub>t</sub> = R<sub>t+1</sub> + γR<sub>t+2</sub> + γ²R<sub>t+3</sub> + ⋯<span class="tag">(1.2)</span></div>
+<p>
+而状态价值就是回报的期望：<span class="math">V<sub>π</sub>(s) = 𝔼[G<sub>t</sub> | S<sub>t</sub> = s]</span>，
+即「从 s 出发、按策略 π 行动，平均能拿多少总分」。
+</p>
+<p>
+本章的实验场地是一个 3×4 的<strong>回合制网格世界</strong>（来自实践代码仓库）：
+右上角 +1 是出口（好结局），它下面 −1 是陷阱（坏结局），到达任意一个，回合结束；灰色是墙。
+计算回报有一个非常实用的技巧——<strong>从轨迹末尾往回倒推</strong>：
+</p>
+<div class="eq">G<sub>t</sub> = R<sub>t+1</sub> + γ·G<sub>t+1</sub><span class="tag">(1.3)</span></div>
+<p>
+从最后一步往前滚一遍，每个时刻的 G<sub>t</sub> 就全出来了，只需一次遍历。这个「倒带」技巧会出现在你将要读到的每一份 MC 代码里。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 1-B</span>轨迹回报计算器</div>
+  <div class="w-body">
+    <p style="margin-top:0">选一条路线，看智能体走完它，然后观察表格：G 列是<strong>从下往上</strong>用式 (1.3) 倒推出来的。拖动 γ，看「远处的结局」对起点的价值影响如何变化。</p>
+    <div class="controls">
+      <label>路线
+        <select id="rcRoute">
+          <option value="A">A：上→上→右→右→右（到达 +1）</option>
+          <option value="B">B：右→右→上→右（掉进 −1）</option>
+        </select></label>
+      <button id="rcPlay">▶ 演示</button>
+      <span class="sep">|</span>
+      <label>γ = <b id="rcGv">0.90</b>
+        <input type="range" id="rcG" min="0" max="99" value="90"></label>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="rcGrid" class="grid-canvas"></canvas>
+        <div class="readout" id="rcOut"></div></div>
+      <div class="wcol"><div id="rcTable"></div></div>
+    </div>
+    <p class="w-tip">试一试：① γ=0 时只有「下一步」算数，起点的 G 变成 0——智能体彻底短视；
+    ② γ 越接近 1，终点的 ±1 越能「传导」回起点；③ 对比路线 A、B 在同一 γ 下起点 G 的符号。</p>
+  </div>
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ①<span class="tag">回报的倒带计算</span></div>
+  <div class="p-body">
+    <p>打开实践脚本，先只看 <code>play_game()</code> 函数——重点是末尾那个 <code>reversed(...)</code> 循环，
+    它就是式 (1.3) 的代码形态。然后运行：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/mc-tutorial/practice</span>
+<span class="cmd">python3 01_mc_prediction.py --show-episode</span></pre>
+    <p>它会打印一条完整轨迹的 (状态, 奖励, G) 序列。<strong>观察</strong>：G 这一列是不是恰好满足
+    <code>G[t] = r[t+1] + GAMMA * G[t+1]</code>？把脚本顶部 <code>GAMMA</code> 改成 <code>0.5</code> 再跑一次，
+    确认远端奖励的影响被指数级压缩。</p>
+  </div>
+</div>
+
+<h2><span class="secno">1.3</span>蒙特卡洛预测：采样、平均、收敛</h2>
+<p>
+现在把 1.1 和 1.2 拼起来。<em class="term">预测（prediction）</em>问题是指：
+<strong>给定</strong>一个策略 π，估计它的价值函数 V<sub>π</sub>(s)（先不优化策略，只当裁判打分）。MC 的做法朴素到可爱：
+</p>
+<div class="box box-algo"><div class="box-title">📋 算法：First-Visit MC 预测</div>
+<ol>
+  <li>为每个状态 s 维护一个回报清单 Returns(s)。</li>
+  <li>反复执行：按 π 跑完一个回合，得到轨迹 s₀, r₁, s₁, r₂, …；从末尾倒推出每个 G<sub>t</sub>。</li>
+  <li>对回合中<strong>第一次</strong>出现的每个状态 s<sub>t</sub>：把 G<sub>t</sub> 加进 Returns(s<sub>t</sub>)。</li>
+  <li>估计 V(s) = average(Returns(s))。</li>
+</ol>
+</div>
+<p>
+「第一次出现」是什么意思？同一个状态在一条轨迹里可能被经过好几次。
+只统计首次经过的叫 <em class="term">first-visit</em>，每次经过都统计的叫 <em class="term">every-visit</em>。
+first-visit 的样本之间更接近独立（无偏），every-visit 样本相关但量大，两者最终都收敛。第 2 章我们还会回到这个区别。
+</p>
+<p>
+还有一个微妙但重要的细节：如果环境和策略都是<strong>确定性</strong>的，那么从同一状态出发的每条轨迹都一模一样，
+回报没有任何随机性，「平均」一次就够了——根本不需要蒙特卡洛。
+<strong>正是随机性让「采样 + 平均」变得必要。</strong>下面的实验里我们给环境加一阵「风」：
+每一步有 30% 的概率把智能体随机吹向别的方向。打开和关闭风，感受两种世界的区别。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 1-C</span>在网格世界里估计 V<sub>π</sub>(s)</div>
+  <div class="w-body">
+    <p style="margin-top:0">
+    固定策略 π 用绿色箭头画在格子里（注意：这个策略在右侧两格会把你送进陷阱——预测问题不挑策略好坏，只负责打分）。
+    每个回合从随机的非终止状态出发。点按钮采样，看每格的 V 估计值与访问次数（×n）如何变化；
+    右侧曲线是估计值与<strong>真值</strong>（用模型精确算出，仅作裁判）的均方根误差 RMSE。
+    <strong>点击任意格子</strong>，可以查看该格收集到的回报样本的分布。</p>
+    <div class="controls">
+      <label><input type="checkbox" id="mcWind" checked> 起风（30% 概率吹偏）</label>
+      <span class="sep">|</span>
+      <label><input type="radio" name="mcVisit" value="first" checked> first-visit</label>
+      <label><input type="radio" name="mcVisit" value="every"> every-visit</label>
+      <span class="sep">|</span>
+      <button id="mcE1">采样 1 回合</button>
+      <button id="mcE10">+10</button>
+      <button id="mcE100">+100</button>
+      <button id="mcE1000">+1000</button>
+      <button class="ghost" id="mcReset">重置</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol">
+        <canvas id="mcGrid" class="grid-canvas" style="cursor:pointer"></canvas>
+        <div class="readout" id="mcOut"></div>
+      </div>
+      <div class="wcol">
+        <canvas id="mcErr" class="chart" style="height:170px"></canvas>
+        <div style="margin-top:10px; font-size:14px" id="mcHistTitle">👆 点击左侧格子查看其回报样本分布</div>
+        <canvas id="mcHist" class="chart" style="height:150px"></canvas>
+      </div>
+    </div>
+    <p class="w-tip">试一试：① 先<strong>关掉风</strong>采样 100 回合：每格只需一个样本就「精确」了（确定性世界不需要平均），
+    RMSE 直接落地；② 开着风重置后只采 10 回合，点开几个格子——样本散得很开，均值很糙；采到 1000+ 回合再看；
+    ③ 对比 first/every-visit：every-visit 的访问计数涨得更快，误差曲线通常更平滑一点；
+    ④ 观察靠近 −1 的格子（如右下角）价值为负——策略让它们大概率走向陷阱，「打分」如实反映了这一点。</p>
+  </div>
+</div>
+
+<div class="box box-think"><div class="box-title">🤔 停下来想一想</div>
+互动 1-C 里每个回合从「随机状态」出发，而不是固定从左下角出发。如果永远从左下角出发会怎样？——
+有些状态可能<strong>永远不被经过</strong>，它们的 Returns 清单永远是空的，价值无从估计。
+这个隐患叫<strong>探索不足</strong>，是贯穿后面两章的主线矛盾：第 2 章用「探索性出发」强行解决它，第 3 章用 ε-greedy 优雅地解决它。
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ②<span class="tag">完整跑通 MC 预测</span></div>
+  <div class="p-body">
+    <p>运行完整的 MC 预测（默认 first-visit、带风、5000 回合），它会打印估计的价值表和真值对照：</p>
+<pre class="term"><span class="cmd">python3 01_mc_prediction.py</span></pre>
+    <p>然后做三组实验（参数都在脚本顶部的「实验区」）：</p>
+    <ul>
+      <li><strong>样本量</strong>：把 <code>NUM_EPISODES</code> 从 5000 改成 50，跑 3 次——注意每次结果都不一样且偏差大。这是大数定律的反面教材。</li>
+      <li><strong>随机性</strong>：把 <code>WIND = 0.0</code>（无风），50 回合也几乎精确。印证互动 1-C 的观察①。</li>
+      <li><strong>访问策略</strong>：改 <code>FIRST_VISIT = False</code> 切到 every-visit，对比相同回合数下的误差。</li>
+    </ul>
+    <p>想看原始出处，可对照阅读 <code>~/studyspace/RL/Reinforcement_learning_tutorial_with_demo/monte_carlo_demo.ipynb</code>。</p>
+  </div>
+</div>
+
+<h2><span class="secno">1.4</span>本章小结</h2>
+<ul>
+  <li>没有模型就用数据；价值是期望，期望可以用<strong>样本平均</strong>估计——这就是 MC 的全部世界观。</li>
+  <li><strong>大数定律</strong>保证收敛：样本均值无偏，方差按 1/n 收缩；代价是样本少时估计很糙。</li>
+  <li>回报用 <strong>G<sub>t</sub> = R<sub>t+1</sub> + γG<sub>t+1</sub> 从轨迹末尾倒推</strong>，一次遍历全算完。</li>
+  <li>first-visit 与 every-visit 是统计回报的两种口径，均收敛。</li>
+  <li>MC 预测只能给定策略「打分」。<strong>怎么利用打分结果改进策略？</strong>这是下一章的主题。</li>
+</ul>
+<div class="box box-think"><div class="box-title">🤔 带走的思考题</div>
+<ol>
+<li>互动 1-A 中，若要把估计误差再缩小一半，样本量大约要乘几？（提示：方差 ∝ 1/n，标准差 ∝ 1/√n）</li>
+<li>MC 预测为什么要求任务「有终点」（回合制）？对一个永不结束的任务，式 (1.2) 的求和怎么办？（第 2 章的 5×5 网格恰好就是个不终止的任务，留意我们怎么处理。）</li>
+<li>互动 1-C 中估计 V(s) 用的是状态价值。如果想改进策略，知道 V 够吗？还缺什么信息？</li>
+</ol>
+</div>
+
+<div class="pager">
+  <a href="index.html"><div class="dir">← 返回</div>目录</a>
+  <a class="next" href="ch2.html"><div class="dir">下一章 →</div>第2章 从评估到改进：MC Basic 与 Exploring Starts</a>
+</div>
+<footer>素材：《强化学习的数学原理》§5.1–5.2 · Easy RL §3.3 · monte_carlo_demo.ipynb</footer>
+</main>
+
+<script>
+/* ============ 互动 1-A 抛硬币 ============ */
+(function () {
+  let samples = [], means = [];
+  const chart = $("coinChart");
+  function p() { return $("coinP").value / 100; }
+  function truth() { return 2 * p() - 1; }
+  function flip(n) {
+    for (let i = 0; i < n; i++) {
+      const x = Math.random() < p() ? 1 : -1;
+      samples.push(x);
+      const prev = means.length ? means[means.length - 1] : 0;
+      means.push(prev + (x - prev) / samples.length); // 增量均值
+    }
+    draw();
+  }
+  function draw() {
+    const ds = [];
+    const xs = [];
+    // 样本点最多画 400 个（等距抽样显示）
+    if (samples.length) {
+      const step = Math.max(1, Math.floor(samples.length / 400));
+      const dots = [], ms = [];
+      for (let i = 0; i < samples.length; i += step) { dots.push(samples[i]); ms.push(means[i]); xs.push(i + 1); }
+      ms[ms.length - 1] = means[means.length - 1];
+      xs[xs.length - 1] = samples.length;
+      ds.push({ data: dots, dots: true, color: "rgba(224,122,48,0.55)", label: "样本" });
+      ds.push({ data: ms, color: "#7c4dbe", label: "累计平均", width: 2.5 });
+    }
+    lineChart(chart, ds, { hline: { y: truth(), label: "真实期望 " + truth().toFixed(2) }, xvals: xs.length ? xs : undefined });
+    const n = samples.length;
+    $("coinOut").textContent = n === 0 ? "还没有样本。先抛几次。" :
+      `样本数 n = ${n}    估计值 x̄ = ${means[n - 1].toFixed(4)}    真值 = ${truth().toFixed(4)}    |误差| = ${Math.abs(means[n - 1] - truth()).toFixed(4)}`;
+  }
+  $("coinP").oninput = () => { $("coinPv").textContent = p().toFixed(2); draw(); };
+  $("coinF1").onclick = () => flip(1);
+  $("coinF10").onclick = () => flip(10);
+  $("coinF100").onclick = () => flip(100);
+  $("coinF1000").onclick = () => flip(1000);
+  $("coinReset").onclick = () => { samples = []; means = []; draw(); };
+  draw();
+})();
+
+/* ============ 互动 1-B 回报计算器 ============ */
+(function () {
+  // 路线：动作序列（0上 1下 2左 3右），从 START 出发
+  const ROUTES = {
+    A: [0, 0, 3, 3, 3],
+    B: [3, 3, 0, 3],
+  };
+  let pathStates = [], pathRewards = []; // states 长度 = 步数+1
+  let animTimer = null, animIdx = 0;
+
+  function buildPath() {
+    const acts = ROUTES[$("rcRoute").value];
+    let [r, c] = EPI.START;
+    pathStates = [[r, c]]; pathRewards = [];
+    for (const a of acts) {
+      const [nr, nc, rew, done] = EPI.step(r, c, a);
+      pathStates.push([nr, nc]); pathRewards.push(rew);
+      r = nr; c = nc;
+      if (done) break;
+    }
+  }
+  function gamma() { return $("rcG").value / 100; }
+  function gReturns() { // G[t] 对应 pathStates[t]（不含终止状态）
+    const T = pathRewards.length;
+    const G = new Array(T).fill(0);
+    let g = 0;
+    for (let t = T - 1; t >= 0; t--) { g = pathRewards[t] + gamma() * g; G[t] = g; }
+    return G;
+  }
+  function draw(agentIdx) {
+    drawEpiGrid($("rcGrid"), {
+      path: pathStates.slice(0, (agentIdx === undefined ? pathStates.length : agentIdx + 1)),
+      agent: pathStates[agentIdx === undefined ? pathStates.length - 1 : agentIdx],
+      cell: 72,
+    });
+    const G = gReturns();
+    const rows = [];
+    rows.push(`<table class="neat"><tr><th>t</th><th>状态 s<sub>t</sub></th><th>奖励 r<sub>t+1</sub></th><th>G<sub>t</sub> = r<sub>t+1</sub> + γ·G<sub>t+1</sub></th></tr>`);
+    for (let t = 0; t < pathRewards.length; t++) {
+      const g2 = (t + 1 < G.length) ? G[t + 1] : 0;
+      rows.push(`<tr><td>${t}</td><td class="mono">(${pathStates[t][0]},${pathStates[t][1]})</td>` +
+        `<td class="mono">${pathRewards[t]}</td>` +
+        `<td class="mono">${pathRewards[t]} + ${gamma().toFixed(2)}×${g2.toFixed(3)} = <b>${G[t].toFixed(3)}</b></td></tr>`);
+    }
+    rows.push(`</table><p class="small" style="text-align:center">G 列请<strong>从最后一行往上</strong>读——这就是「倒带」。</p>`);
+    $("rcTable").innerHTML = rows.join("");
+    $("rcOut").textContent = `起点回报 G₀ = ${G[0].toFixed(4)}（γ = ${gamma().toFixed(2)}，共 ${pathRewards.length} 步）`;
+  }
+  function play() {
+    if (animTimer) clearInterval(animTimer);
+    animIdx = 0;
+    draw(0);
+    animTimer = setInterval(() => {
+      animIdx++;
+      if (animIdx >= pathStates.length) { clearInterval(animTimer); animTimer = null; draw(); return; }
+      draw(animIdx);
+    }, 420);
+  }
+  $("rcRoute").onchange = () => { buildPath(); draw(); };
+  $("rcG").oninput = () => { $("rcGv").textContent = gamma().toFixed(2); draw(); };
+  $("rcPlay").onclick = play;
+  buildPath(); draw();
+})();
+
+/* ============ 互动 1-C MC 预测 ============ */
+(function () {
+  const GAMMA = 0.9;
+  // demo 仓库中的固定策略（U=0 D=1 L=2 R=3）
+  const POLICY = { "2,0": 0, "1,0": 0, "0,0": 3, "0,1": 3, "0,2": 3, "1,2": 3, "2,1": 3, "2,2": 3, "2,3": 0 };
+  let returnsBy = {}, V = {}, visits = {}, nEp = 0, rmsHist = [], rmsX = [];
+  let picked = null;
+
+  function windP() { return $("mcWind").checked ? 0.7 : 1.0; }
+  function firstVisit() { return document.querySelector('input[name=mcVisit]:checked').value === "first"; }
+  function exactV() { return epiEvalExact(POLICY, GAMMA, windP()); }
+
+  function reset() {
+    returnsBy = {}; V = {}; visits = {}; nEp = 0; rmsHist = []; rmsX = []; picked = null;
+    for (const [r, c] of EPI.states()) { returnsBy[r + "," + c] = []; visits[r + "," + c] = 0; }
+    draw();
+  }
+  function episode() {
+    const starts = EPI.states();
+    let [r, c] = starts[randInt(starts.length)];
+    const traj = []; // {k, rew}
+    for (let step = 0; step < 500; step++) {
+      const k = r + "," + c;
+      const a = windyAction(POLICY[k], windP());
+      const [nr, nc, rew, done] = EPI.step(r, c, a);
+      traj.push({ k, rew });
+      r = nr; c = nc;
+      if (done) break;
+    }
+    // 倒带计算 G，并按 first/every-visit 记账
+    let g = 0;
+    const Gs = new Array(traj.length);
+    for (let t = traj.length - 1; t >= 0; t--) { g = traj[t].rew + GAMMA * g; Gs[t] = g; }
+    const seen = new Set();
+    for (let t = 0; t < traj.length; t++) {
+      const k = traj[t].k;
+      if (firstVisit() && seen.has(k)) continue;
+      seen.add(k);
+      returnsBy[k].push(Gs[t]);
+      visits[k]++;
+      V[k] = returnsBy[k].reduce((x, y) => x + y, 0) / returnsBy[k].length;
+    }
+    nEp++;
+  }
+  function rmse() {
+    const ex = exactV();
+    let se = 0, n = 0;
+    for (const k in ex) { const v = (k in V) ? V[k] : 0; se += (v - ex[k]) ** 2; n++; }
+    return Math.sqrt(se / n);
+  }
+  function run(n) {
+    for (let i = 0; i < n; i++) { episode(); if (n <= 10 || i % Math.ceil(n / 60) === 0 || i === n - 1) { rmsHist.push(rmse()); rmsX.push(nEp); } }
+    draw();
+  }
+  function draw() {
+    drawEpiGrid($("mcGrid"), { values: V, visits, policy: POLICY, tint: true, cell: 78, mark: picked });
+    lineChart($("mcErr"), [{ data: rmsHist.length ? rmsHist : [0], color: "#7c4dbe", label: "RMSE（估计 vs 真值）" }], { yZero: true, xvals: rmsX.length ? rmsX : undefined });
+    $("mcOut").textContent = `已采样 ${nEp} 回合    当前 RMSE = ${rmsHist.length ? rmsHist[rmsHist.length - 1].toFixed(4) : "–"}    （${firstVisit() ? "first" : "every"}-visit，${$("mcWind").checked ? "有风" : "无风"}）`;
+    // 直方图
+    if (picked) {
+      const k = picked[0] + "," + picked[1];
+      const data = returnsBy[k] || [];
+      const ex = exactV()[k];
+      $("mcHistTitle").innerHTML = `格子 (${k}) 的回报样本：<b>${data.length}</b> 个，均值 <b>${data.length ? fmt(data.reduce((a, b) => a + b, 0) / data.length, 3) : "–"}</b>，真值 <b>${fmt(ex, 3)}</b>`;
+      histChart($("mcHist"), data, {});
+    } else {
+      $("mcHistTitle").textContent = "👆 点击左侧格子查看其回报样本分布";
+      histChart($("mcHist"), [], { empty: "未选择格子" });
+    }
+  }
+  $("mcGrid").onclick = (ev) => {
+    const rect = $("mcGrid").getBoundingClientRect();
+    const c = Math.floor((ev.clientX - rect.left) / 78), r = Math.floor((ev.clientY - rect.top) / 78);
+    const k = r + "," + c;
+    if (k in returnsBy) { picked = [r, c]; draw(); }
+  };
+  $("mcE1").onclick = () => run(1);
+  $("mcE10").onclick = () => run(10);
+  $("mcE100").onclick = () => run(100);
+  $("mcE1000").onclick = () => run(1000);
+  $("mcReset").onclick = reset;
+  $("mcWind").onchange = reset;
+  document.querySelectorAll('input[name=mcVisit]').forEach(el => el.onchange = reset);
+  reset();
+})();
+</script>
+</body>
+</html>

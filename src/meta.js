@@ -17,11 +17,20 @@
 export const CATEGORIES = {
   invest: { label: "投资", en: "Investing", desc: "价值投资与市场认知", order: 1 },
   history: { label: "历史", en: "History", desc: "人物与典籍", order: 2 },
+  RL: { label: "强化学习", en: "RL", desc: "算法教程与互动实验", order: 3 },
 };
 
 // 每篇研习的元数据 / Per-study metadata.
 // key = "<分类文件夹>/<文件名不含扩展名>"
 export const STUDIES = {
+  "RL/mc-tutorial": {
+    title: "蒙特卡洛方法 · 互动式强化学习教程",
+    subtitle: "Monte Carlo Methods · Reinforcement Learning",
+    description:
+      "三章纯静态网页教程：MC 预测、MC Exploring Starts、MC ε-Greedy，配互动实验与可运行实践脚本。",
+    date: "2026-06-11",
+    tags: ["强化学习", "蒙特卡洛", "MC", "互动教程", "Python实践"],
+  },
   "invest/intelligent-investor": {
     title: "聪明的投资者",
     subtitle: "The Intelligent Investor · Benjamin Graham",

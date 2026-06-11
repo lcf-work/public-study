@@ -1,0 +1,200 @@
+/* ===== 蒙特卡洛互动教程 共享样式 ===== */
+:root {
+  --bg: #faf8f4;
+  --ink: #2b2b2b;
+  --muted: #6b6b6b;
+  --accent: #7c4dbe;       /* 主题紫，呼应原书第5章配色 */
+  --accent-soft: #f0e9fa;
+  --green: #2e8b57;
+  --orange: #f6b26b;       /* 禁止区 */
+  --cyan: #9fe8e8;         /* 目标区 */
+  --panel: #ffffff;
+  --code-bg: #1e1f26;
+  --code-ink: #d8e0d0;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", -apple-system, sans-serif;
+  line-height: 1.85;
+  font-size: 16.5px;
+}
+main { max-width: 880px; margin: 0 auto; padding: 0 22px 90px; }
+
+/* —— 顶部导航 —— */
+.topnav {
+  background: #fff;
+  border-bottom: 1px solid #e8e2d8;
+  position: sticky; top: 0; z-index: 50;
+}
+.topnav .inner {
+  max-width: 880px; margin: 0 auto; padding: 10px 22px;
+  display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap;
+}
+.topnav .brand { font-weight: 700; color: var(--accent); text-decoration: none; font-size: 17px; }
+.topnav a { color: var(--muted); text-decoration: none; font-size: 14.5px; }
+.topnav a:hover { color: var(--accent); }
+.topnav a.here { color: var(--ink); font-weight: 600; }
+
+/* —— 标题 —— */
+h1 { font-size: 30px; line-height: 1.4; margin: 44px 0 6px; }
+h1 .kicker { display: block; font-size: 14px; letter-spacing: 2px; color: var(--accent); font-weight: 600; margin-bottom: 6px; }
+h2 { font-size: 22.5px; margin: 52px 0 14px; padding-bottom: 6px; border-bottom: 2px solid var(--accent-soft); }
+h2 .secno { color: var(--accent); margin-right: 8px; }
+h3 { font-size: 18px; margin: 30px 0 10px; }
+p { margin: 12px 0; }
+.lead { font-size: 17.5px; color: #444; }
+strong { color: #1d1d1d; }
+em.term { font-style: normal; font-weight: 600; color: var(--accent); }
+hr { border: none; border-top: 1px dashed #d8d0c2; margin: 40px 0; }
+
+ul, ol { padding-left: 1.6em; }
+li { margin: 6px 0; }
+
+/* —— 公式 —— */
+.math {
+  font-family: "STIX Two Math", "Cambria Math", Georgia, serif;
+  font-style: italic;
+}
+.eq {
+  text-align: center; margin: 18px 0; font-size: 18px;
+  font-family: "STIX Two Math", "Cambria Math", Georgia, serif;
+}
+.eq .tag { float: right; color: var(--muted); font-size: 14px; font-style: normal; }
+sub, sup { font-size: 0.72em; }
+
+/* —— 提示框 —— */
+.box {
+  border-radius: 10px; padding: 14px 18px; margin: 22px 0;
+  border: 1px solid #e5ddd0; background: var(--panel);
+}
+.box .box-title { font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.box-idea { background: #fdf9ee; border-color: #ecd9a8; }
+.box-idea .box-title { color: #9a7218; }
+.box-algo { background: #f5f1fb; border-color: #d9c8f0; }
+.box-algo .box-title { color: var(--accent); }
+.box-algo ol, .box-algo ul { margin: 4px 0; }
+.box-warn { background: #fdf2f0; border-color: #efc4bb; }
+.box-warn .box-title { color: #b2452f; }
+.box-think { background: #eef6f0; border-color: #bfdcc8; }
+.box-think .box-title { color: #2e6b45; }
+
+/* —— 编程实践 —— */
+.practice {
+  border-radius: 12px; margin: 30px 0;
+  border: 2px solid #36405a; background: #f4f6fb; overflow: hidden;
+}
+.practice .p-head {
+  background: #36405a; color: #fff; padding: 9px 18px;
+  font-weight: 700; letter-spacing: 1px; display: flex; gap: 10px; align-items: center;
+}
+.practice .p-head .tag { background: #ffd966; color: #333; border-radius: 4px; font-size: 12px; padding: 1px 8px; letter-spacing: 0; }
+.practice .p-body { padding: 6px 20px 16px; }
+pre.term {
+  background: var(--code-bg); color: var(--code-ink);
+  border-radius: 8px; padding: 12px 16px; overflow-x: auto;
+  font-size: 14px; line-height: 1.6;
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+}
+pre.term .cmd { color: #8fd3a8; }
+pre.term .cm  { color: #7d8799; }
+code {
+  background: #efe9dd; border-radius: 4px; padding: 1px 6px;
+  font-family: "JetBrains Mono", Consolas, monospace; font-size: 0.88em;
+}
+.practice code { background: #e2e7f2; }
+
+/* —— 互动面板 —— */
+.widget {
+  border: 2px solid var(--accent); border-radius: 14px;
+  margin: 28px 0; background: #fff; overflow: hidden;
+  box-shadow: 0 3px 14px rgba(124, 77, 190, 0.10);
+}
+.widget .w-head {
+  background: var(--accent); color: #fff; padding: 8px 18px;
+  font-weight: 700; display: flex; align-items: center; gap: 10px;
+}
+.widget .w-head .badge { background: rgba(255,255,255,.22); border-radius: 5px; font-size: 12px; padding: 1px 8px; letter-spacing: 1px; }
+.widget .w-body { padding: 16px 20px 20px; }
+.widget .w-tip { color: var(--muted); font-size: 14px; margin-top: 4px; }
+.wrow { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.wcol { flex: 1 1 300px; min-width: 280px; }
+
+.controls {
+  display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  margin: 10px 0 14px; padding: 10px 12px;
+  background: #f7f4fc; border-radius: 8px; font-size: 14.5px;
+}
+.controls label { display: inline-flex; align-items: center; gap: 6px; }
+.controls .sep { color: #ccc; }
+button {
+  background: var(--accent); color: #fff; border: none; border-radius: 7px;
+  padding: 6px 14px; font-size: 14.5px; cursor: pointer;
+  font-family: inherit; transition: transform .06s, background .15s;
+}
+button:hover { background: #6a3da9; }
+button:active { transform: scale(0.96); }
+button.ghost { background: #fff; color: var(--accent); border: 1.5px solid var(--accent); }
+button.ghost:hover { background: var(--accent-soft); }
+button:disabled { background: #c9c2d6; cursor: default; }
+input[type=range] { accent-color: var(--accent); vertical-align: middle; }
+input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
+select { font-family: inherit; font-size: 14px; padding: 3px 6px; border-radius: 6px; border: 1px solid #ccc; }
+
+canvas.grid-canvas { display: block; margin: 0 auto; max-width: 100%; }
+canvas.chart { display: block; width: 100%; background: #fcfbff; border: 1px solid #e8e2f4; border-radius: 8px; }
+
+.readout {
+  font-family: "JetBrains Mono", Consolas, monospace; font-size: 14px;
+  background: #f7f4fc; border-radius: 8px; padding: 10px 14px; margin-top: 10px;
+  white-space: pre-wrap;
+}
+.readout b { color: var(--accent); }
+
+/* 轨迹链 chips（第2章子回合分解） */
+.chips { line-height: 2.6; word-break: break-all; }
+.chip {
+  display: inline-block; background: #f1ecfa; border: 1.5px solid #cdb9ec;
+  border-radius: 7px; padding: 1px 8px; margin: 2px 1px; cursor: pointer;
+  font-family: "JetBrains Mono", Consolas, monospace; font-size: 13.5px;
+  transition: background .12s;
+}
+.chip:hover { background: #e3d7f7; }
+.chip.lit { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chip.dim { opacity: 0.35; }
+.chip.mark { box-shadow: 0 0 0 2px #f5b942; }
+.arrowchar { color: #999; margin: 0 1px; }
+
+/* 表格 */
+table.neat { border-collapse: collapse; margin: 14px auto; font-size: 14.5px; }
+table.neat th, table.neat td { border: 1px solid #ddd3c2; padding: 5px 12px; text-align: center; }
+table.neat th { background: #f3eee4; }
+table.neat td.mono { font-family: "JetBrains Mono", Consolas, monospace; font-size: 13.5px; }
+
+/* 章节卡片（首页） */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin: 30px 0; }
+.card {
+  display: block; background: #fff; border: 1.5px solid #e5ddd0; border-radius: 14px;
+  padding: 20px 22px; text-decoration: none; color: var(--ink);
+  transition: box-shadow .15s, transform .15s, border-color .15s;
+}
+.card:hover { box-shadow: 0 6px 20px rgba(124,77,190,.15); transform: translateY(-2px); border-color: var(--accent); }
+.card .no { font-size: 13px; color: var(--accent); font-weight: 700; letter-spacing: 2px; }
+.card h3 { margin: 6px 0 8px; font-size: 18.5px; }
+.card p { font-size: 14px; color: var(--muted); margin: 0; }
+
+/* 章末导航 */
+.pager { display: flex; justify-content: space-between; margin-top: 60px; gap: 14px; }
+.pager a {
+  flex: 1; background: #fff; border: 1.5px solid #e5ddd0; border-radius: 10px;
+  padding: 12px 18px; text-decoration: none; color: var(--ink);
+}
+.pager a:hover { border-color: var(--accent); }
+.pager .dir { font-size: 12.5px; color: var(--muted); }
+.pager .next { text-align: right; }
+
+footer { margin-top: 70px; padding-top: 18px; border-top: 1px solid #e8e2d8; color: var(--muted); font-size: 13.5px; }
+.small { font-size: 13.5px; color: var(--muted); }

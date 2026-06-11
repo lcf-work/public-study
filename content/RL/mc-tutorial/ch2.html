@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第2章 从评估到改进：MC Basic 与 Exploring Starts</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/lib.js"></script>
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand" href="index.html">MC 互动教程</a>
+  <a href="ch1.html">第1章 蒙特卡洛预测</a>
+  <a class="here" href="ch2.html">第2章 MC Basic 与 Exploring Starts</a>
+  <a href="ch3.html">第3章 ε-Greedy 与探索-利用</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">第 2 章</span>从评估到改进：MC Basic 与 Exploring Starts</h1>
+<p class="lead">
+第 1 章学会了给策略「打分」（预测）。这一章解决<em class="term">控制（control）</em>问题：
+<strong>不断利用打分结果改进策略，直到找到最优策略</strong>——而且全程不碰模型。
+</p>
+
+<h2><span class="secno">2.1</span>复习：策略迭代这台发动机</h2>
+<p>
+回忆一下（有模型的）策略迭代，它是一台两冲程发动机，反复做两件事：
+</p>
+<ol>
+  <li><strong>策略评估</strong>：算出当前策略 π<sub>k</sub> 的价值；</li>
+  <li><strong>策略改进</strong>：在每个状态贪婪地换上更好的动作，
+  <span class="math">π<sub>k+1</sub>(s) = argmax<sub>a</sub> q<sub>π<sub>k</sub></sub>(s, a)</span>。</li>
+</ol>
+<p>
+注意改进这一步用的是<em class="term">动作价值</em> <span class="math">q(s,a)</span>，不是 V(s)。
+这正是整台发动机的<strong>心脏</strong>：要选动作，就必须知道「在 s 做 a 到底值多少」。算 q 有两条路：
+</p>
+<ul>
+  <li><strong>有模型</strong>：q<sub>π</sub>(s,a) = Σ<sub>r</sub> p(r|s,a)·r + γ Σ<sub>s′</sub> p(s′|s,a)·V<sub>π</sub>(s′)。要用到转移概率——没模型就此路不通。</li>
+  <li><strong>免模型</strong>：q<sub>π</sub>(s,a) 的定义本来就是期望回报 𝔼[G<sub>t</sub> | S<sub>t</sub>=s, A<sub>t</sub>=a]。
+  是期望？那就<strong>采样取平均</strong>！从 (s,a) 出发按 π 跑很多回合，平均回报就是 q 的估计——这正是第 1 章练好的功夫。</li>
+</ul>
+<div class="box box-idea"><div class="box-title">💡 一句话顿悟</div>
+把策略迭代里「用模型算 q」整块抠下来，换成「用采样估 q」，其余一个字不改——你就发明了第一个免模型强化学习算法。
+就这么简单。
+</div>
+
+<h2><span class="secno">2.2</span>MC Basic：最朴素的免模型控制</h2>
+<div class="box box-algo"><div class="box-title">📋 算法：MC Basic（《强化学习的数学原理》算法 5.1）</div>
+从任意初始策略 π₀ 出发，第 k 轮（k = 0, 1, 2, …）做：
+<ol>
+  <li><strong>策略评估</strong>：对<strong>每个</strong>状态-动作对 (s, a)，从 (s,a) 出发按 π<sub>k</sub> 收集足够多回合，
+      用平均回报近似 q<sub>π<sub>k</sub></sub>(s, a)；</li>
+  <li><strong>策略改进</strong>：每个状态换上贪婪动作 a*<sub>k</sub>(s) = argmax<sub>a</sub> q<sub>k</sub>(s, a)。</li>
+</ol>
+</div>
+<p>
+本章换一块更有意思的场地：原书的 <strong>5×5 网格世界</strong>。蓝绿色格子是目标（进入得 +1），
+橙色是禁区（进入得 −10，但允许进入），撞边界弹回得 −1，其余移动得 0。动作有五个：上、右、下、左、<strong>原地不动</strong>。
+注意这个任务<strong>没有终点</strong>——到达目标后回合不结束，最优解是「走到目标然后原地呆着刷分」。
+没有终点，第 1 章的思考题就来了：无限长的回报怎么采样？答案：<strong>截断</strong>。
+每个回合只跑 L 步，回报只累计这 L 步。那么 L 该取多大？这就是下面实验的主角。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 2-A</span>回合长度 L 如何决定成败（复现原书图 5.4）</div>
+  <div class="w-body">
+    <p style="margin-top:0">
+    下面现场运行 MC Basic 直到策略稳定（环境与策略都确定，所以每个 (s,a) 采一条长度 L 的回合就够了）。
+    左图：最终的状态价值 v(s) = max<sub>a</sub> q(s,a) 与贪婪策略箭头。拖动 L，观察价值如何从目标点「往外生长」。</p>
+    <div class="controls">
+      <label>回合长度 L = <b id="basicLv">1</b>
+        <input type="range" id="basicL" min="1" max="100" value="1" style="width:220px"></label>
+      <button id="basicSweep">▶ 自动扫描 L: 1 → 100</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="basicGrid" class="grid-canvas"></canvas></div>
+      <div class="wcol">
+        <div class="readout" id="basicOut"></div>
+        <canvas id="basicChart" class="chart" style="height:170px; margin-top:10px"></canvas>
+        <p class="small">曲线：非零价值的状态个数 随 L 的变化（自动扫描时绘制）。</p>
+      </div>
+    </div>
+    <p class="w-tip">观察清单：① L=1 时只有目标四邻有非零价值——回合太短，远处的状态根本「看不到」奖励；
+    ② L 逐渐加大，价值像涟漪一样从目标向外扩散，<strong>离目标越近的状态越早「苏醒」</strong>；
+    ③ 本图中从最远的左下角到达目标需要约 15 步，所以 L ≥ 15 后所有状态才有非零估计；
+    ④ L=30 左右策略已经最优（看箭头），虽然价值数字还偏小——找对策略不需要把价值算准。</p>
+  </div>
+</div>
+
+<div class="box box-warn"><div class="box-title">⚠ 这里藏着一个大问题：稀疏奖励</div>
+这个网格里只有目标给正奖励——不摸到目标，回报全是 0 或负数，学习就无从谈起。这叫<em class="term">稀疏奖励（sparse reward）</em>。
+状态空间一大，「碰巧走到目标」难如登天，这是强化学习的核心难题之一。
+常见解药是<strong>把奖励铺得密一点</strong>（比如目标附近也给点小奖励，形成「引力场」）。
+你会在编程实践④里亲手体验奖励设计（step cost）对学到的策略的塑造力。
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ③<span class="tag">可选 · 把玩原书的官方网格世界</span></div>
+  <div class="p-body">
+    <p>原书仓库自带一个 Python 版网格世界环境（matplotlib 动画窗口，需要图形界面）。值得跑一次随机游走，直观感受「智能体视角」——它对世界一无所知，只收到一串 (状态, 奖励)：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/Book-Mathematical-Foundation-of-Reinforcement-Learning/"Code for grid world"/python_version/examples</span>
+<span class="cmd">python3 example_grid_world.py</span></pre>
+    <p><strong>观察</strong>：终端打印的每一行就是 MC 算法的全部「口粮」。
+    顺手读读 <code>src/grid_world.py</code> 的 <code>step()</code>：模型(转移规律)明明写在代码里，但算法假装看不见——这就是 model-free 的纪律。无图形界面可跳过本实践。</p>
+  </div>
+</div>
+
+<h2><span class="secno">2.3</span>把一条轨迹「榨干」：initial / first / every-visit</h2>
+<p>
+MC Basic 思想干净，但<strong>奢侈得离谱</strong>：每个 (s,a) 都要专门收集一批回合，回合里后面经过的大量 (s,a) 全被扔掉了。
+看看一条轨迹里到底藏着多少财富：
+</p>
+<div class="eq">s₁ <span style="font-size:.8em">→a₂→</span> s₂ <span style="font-size:.8em">→a₄→</span> s₁ <span style="font-size:.8em">→a₂→</span> s₂ <span style="font-size:.8em">→a₃→</span> s₅ <span style="font-size:.8em">→a₁→</span> ⋯</div>
+<p>
+轨迹每经过一个 (s,a)，称为对它的一次<em class="term">访问（visit）</em>。从任何一次访问处把轨迹「剪开」，
+后半段就是一条从该 (s,a) 出发的<strong>子回合</strong>——一个免费的回报样本！利用方式有三档：
+</p>
+<ul>
+  <li><strong>initial-visit</strong>：只用开头那个 (s,a)（MC Basic 的用法，最浪费）；</li>
+  <li><strong>first-visit</strong>：每个 (s,a) 的首次访问各贡献一个样本；</li>
+  <li><strong>every-visit</strong>：每次访问都贡献样本（最省，样本间有相关性，但依然收敛）。</li>
+</ul>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 2-B</span>子回合分解器</div>
+  <div class="w-body">
+    <p style="margin-top:0">下面是 5×5 网格里随机生成的一条轨迹（γ=0.9）。<strong>点击任意一个节点</strong>：
+    高亮部分就是从那里出发的子回合，并立即算出其回报 G。再切换三种「口径」，看同一条轨迹能榨出几个样本（金圈标记）。</p>
+    <div class="controls">
+      <button id="subNew">🎲 重新生成轨迹</button>
+      <span class="sep">|</span>
+      <label><input type="radio" name="subMode" value="initial"> initial-visit</label>
+      <label><input type="radio" name="subMode" value="first" checked> first-visit</label>
+      <label><input type="radio" name="subMode" value="every"> every-visit</label>
+    </div>
+    <div class="chips" id="subChips"></div>
+    <div class="readout" id="subOut"></div>
+    <p class="w-tip">数一数：every-visit 口径下，一条 12 步的轨迹贡献 12 个样本——是 initial-visit 的 12 倍。
+    样本利用率的差距随轨迹变长越拉越大，这就是为什么实用的 MC 算法都抛弃了 initial-visit。</p>
+  </div>
+</div>
+
+<h2><span class="secno">2.4</span>MC Exploring Starts：高效版 MC Basic</h2>
+<p>
+把 2.3 的「榨干技巧」装回 MC Basic，再加一个提速点——<strong>不等估计收集完美就改进策略</strong>：
+每跑完一条回合就立刻用它更新 q、立刻贪婪改进。单条回合的估计当然很糙，
+但「评估不精确也照样改进」正是<em class="term">广义策略迭代（GPI）</em>的精髓，后面几乎所有算法都这么干。
+</p>
+<div class="box box-algo"><div class="box-title">📋 算法：MC Exploring Starts（原书算法 5.2，every-visit 版）</div>
+对每条回合：
+<ol>
+  <li><strong>探索性出发</strong>：随机选起点 (s₀, a₀)，保证每个状态-动作对都可能被选中；之后按当前策略走 T 步；</li>
+  <li>令 g ← 0，<strong>从轨迹末尾往回</strong>遍历 t = T−1, …, 0：
+    <ul>
+      <li>g ← γ·g + r<sub>t+1</sub>（倒带）；</li>
+      <li>Returns(s<sub>t</sub>, a<sub>t</sub>) 累加 g，q(s<sub>t</sub>, a<sub>t</sub>) ← 平均值；</li>
+      <li>立刻改进：π(s<sub>t</sub>) ← argmax<sub>a</sub> q(s<sub>t</sub>, a)。</li>
+    </ul></li>
+</ol>
+</div>
+<p>
+名字里的<em class="term">探索性出发（exploring starts）</em>是算法的命门：
+<strong>必须保证每个 (s,a) 都有机会作为起点被反复尝试</strong>。为什么？贪婪策略是「独食」的——
+一旦它认定某动作差（哪怕只是因为还没试过），就再也不会选它，对应的 q 永远得不到更新，错判将无人纠正。
+探索性出发用「行政手段」强行保证人人有份。它管不管用？没有它会怎样？做实验。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 2-C</span>现场训练 MC Exploring Starts</div>
+  <div class="w-body">
+    <p style="margin-top:0">初始策略完全随机。每条回合 100 步。左图实时显示当前贪婪策略与 v(s) = max<sub>a</sub> q(s,a)；
+    右侧曲线是「当前策略与最优策略的真实差距」（用模型精确评估，只当裁判）。</p>
+    <div class="controls">
+      <label><input type="checkbox" id="esOn" checked> 探索性出发（随机起点 s₀, a₀）</label>
+      <span class="sep">|</span>
+      <button id="esT1">训练 1 回合</button>
+      <button id="esT100">+100</button>
+      <button id="esT1000">+1000</button>
+      <button class="ghost" id="esReset">重置</button>
+      <span class="sep">|</span>
+      <label><input type="checkbox" id="esHeat"> 显示访问热力</label>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="esGrid" class="grid-canvas"></canvas></div>
+      <div class="wcol">
+        <div class="readout" id="esOut"></div>
+        <canvas id="esChart" class="chart" style="height:180px; margin-top:10px"></canvas>
+        <p class="small">差距 = (v*(s) − v<sub>π</sub>(s)) 对所有 s 取平均；降到 0 即策略最优。</p>
+      </div>
+    </div>
+    <p class="w-tip">实验脚本：① 开着探索性出发训练 1000 回合——差距曲线落到 0，箭头全部指向目标，(s,a) 覆盖率接近 100%；
+    ② <strong>重置，关掉探索性出发</strong>（每回合都从左上角出发）再训练 1000 回合——打开「访问热力」看看：
+    智能体很快锁死在一条自以为是的路线上，大片 (s,a) 从未尝试，差距曲线卡在半空再也下不去。
+    这就是「探索不足」的活体标本；③ 反复按「训练 1 回合」单步观察：策略箭头是一格一格被「点亮」的，
+    顺序大致从目标附近向外蔓延——和互动 2-A 的涟漪是同一个道理。</p>
+  </div>
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ④<span class="tag">MC Exploring Starts + 奖励设计</span></div>
+  <div class="p-body">
+    <p>回到 3×4 小网格跑 MC ES（这次每步都有代价 step cost，逼智能体找短路）：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/mc-tutorial/practice</span>
+<span class="cmd">python3 02_mc_es.py</span></pre>
+    <p>脚本会打印最终 Q 导出的策略和价值，并把收敛曲线（每回合 Q 的最大变化量）存成 PNG。三组实验：</p>
+    <ul>
+      <li><strong>奖励塑造</strong>：默认 <code>STEP_COST = -0.9</code>（每走一步罚 0.9，急性子世界）。
+          看打印的策略：智能体宁可<strong>直奔最近的出口</strong>，甚至有的状态会选择冲向 −1 终点——早死早超生！
+          改成 <code>-0.1</code> 再跑：策略立刻变得从容，绕路也要去 +1。<strong>奖励函数就是你给智能体立的价值观。</strong></li>
+      <li><strong>探索性出发的命门</strong>：改 <code>EXPLORING_STARTS = False</code>（固定从左下角出发、首个动作也不再随机），
+          跑几次——注意有些状态的策略明显不对，对照互动 2-C 的实验②。</li>
+      <li><strong>收敛曲线</strong>：看生成的 <code>02_deltas.png</code>，曲线毛刺很多但整体下行——单回合更新就是这么「糙快猛」。</li>
+    </ul>
+    <p>原始出处：<code>monte_carlo_es_demo.ipynb</code>。脚本里 <code>play_game()</code> 对「原地打转」的轨迹做了截断处理，读一读注释，想想为什么确定性贪婪策略容易打转。</p>
+  </div>
+</div>
+
+<h2><span class="secno">2.5</span>本章小结</h2>
+<ul>
+  <li>免模型控制 = 策略迭代 + 「用采样平均估 q」。最朴素的实现是 <strong>MC Basic</strong>。</li>
+  <li>回报截断长度 L 必须足以从最远的状态摸到奖励；价值总是<strong>从奖励源向外生长</strong>。稀疏奖励因此致命。</li>
+  <li>一条轨迹的每次访问都是一个免费样本：<strong>every-visit + 倒带累加</strong>是标准写法。</li>
+  <li><strong>MC Exploring Starts</strong> = MC Basic + 榨干轨迹 + 单回合即时改进（GPI）。</li>
+  <li>贪婪改进会扼杀探索，必须靠「探索性出发」续命——但现实中（机器人、真实交互）你往往<strong>没法把系统拽到任意 (s,a) 重启</strong>。怎么办？下一章给出优雅的答案。</li>
+</ul>
+<div class="box box-think"><div class="box-title">🤔 带走的思考题</div>
+<ol>
+<li>互动 2-A 中 L=2 时，恰好哪些状态有非零价值？先推理，再拖滑块验证。</li>
+<li>every-visit 的样本为何「相关」？提示：同一条轨迹里第二次访问的子回合，是第一次访问子回合的后缀。相关样本会破坏收敛吗？</li>
+<li>互动 2-C 关掉探索性出发后，把「差距」卡住的那几个状态找出来（对照热力图）——它们有什么共同点？</li>
+</ol>
+</div>
+
+<div class="pager">
+  <a href="ch1.html"><div class="dir">← 上一章</div>第1章 蒙特卡洛预测</a>
+  <a class="next" href="ch3.html"><div class="dir">下一章 →</div>第3章 告别上帝视角：MC ε-Greedy</a>
+</div>
+<footer>素材：《强化学习的数学原理》§5.2–5.3 · monte_carlo_es_demo.ipynb</footer>
+</main>
+
+<script>
+/* ============ 互动 2-A MC Basic 与回合长度 ============ */
+(function () {
+  const env = makeBookEnv({ rForbidden: -10, rBoundary: -1, rTarget: 1 });
+  const GAMMA = 0.9;
+  const OPT = bookValueIteration(env, GAMMA);
+  let sweepTimer = null, sweepData = [], sweepLs = [];
+
+  // 从 (s,a) 出发、按确定性策略 pol 走 L 步的截断回报（全程确定，单次 rollout 即精确）
+  function rollout(s, a, pol, L) {
+    let g = 0, w = 1, cur = s, act = a;
+    for (let t = 0; t < L; t++) {
+      const [s2, r] = env.step(cur, act);
+      g += w * r; w *= GAMMA;
+      cur = s2; act = pol[cur];
+    }
+    return g;
+  }
+  function runBasic(L) {
+    let pol = new Int8Array(25).fill(4); // 初始策略：原地不动
+    let V = new Float64Array(25), iters = 0;
+    for (let k = 0; k < 80; k++) {
+      iters = k + 1;
+      const newPol = new Int8Array(25);
+      for (let s = 0; s < 25; s++) {
+        let best = -Infinity, ba = 0;
+        for (let a = 0; a < 5; a++) {
+          const q = rollout(s, a, pol, L);
+          if (q > best + 1e-12) { best = q; ba = a; }
+        }
+        newPol[s] = ba; V[s] = best;
+      }
+      let same = true;
+      for (let s = 0; s < 25; s++) if (newPol[s] !== pol[s]) { same = false; break; }
+      pol = newPol;
+      if (same) break;
+    }
+    return { pol, V, iters };
+  }
+  function show(L) {
+    const { pol, V, iters } = runBasic(L);
+    drawBookGrid($("basicGrid"), { values: V, policy: pol, cell: 66 });
+    let nz = 0, gap = 0;
+    for (let s = 0; s < 25; s++) { if (Math.abs(V[s]) > 1e-9) nz++; gap = Math.max(gap, Math.abs(V[s] - OPT.V[s])); }
+    $("basicOut").textContent =
+      `L = ${L}    策略稳定用了 ${iters} 轮迭代\n非零价值的状态：${nz} / 25\n与最优价值的最大偏差：${gap.toFixed(2)}` +
+      (L >= 15 ? "\n✓ L ≥ 15：最远的状态也能摸到目标了" : "\n（最远的状态需要约 15 步才能到达目标）");
+    return nz;
+  }
+  function redraw() {
+    const L = +$("basicL").value;
+    $("basicLv").textContent = L;
+    show(L);
+    if (sweepData.length) lineChart($("basicChart"), [{ data: sweepData, color: "#7c4dbe", label: "非零价值状态数" }], { yZero: true, xvals: sweepLs });
+  }
+  $("basicL").oninput = () => { if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; } redraw(); };
+  $("basicSweep").onclick = () => {
+    if (sweepTimer) clearInterval(sweepTimer);
+    sweepData = []; sweepLs = [];
+    let L = 1;
+    sweepTimer = setInterval(() => {
+      $("basicL").value = L; $("basicLv").textContent = L;
+      sweepData.push(show(L)); sweepLs.push(L);
+      lineChart($("basicChart"), [{ data: sweepData, color: "#7c4dbe", label: "非零价值状态数" }], { yZero: true, xvals: sweepLs });
+      L += (L < 20 ? 1 : 4); // 前段细扫，后段跳着扫
+      if (L > 100) { clearInterval(sweepTimer); sweepTimer = null; }
+    }, 160);
+  };
+  lineChart($("basicChart"), [{ data: [0], color: "#7c4dbe", label: "非零价值状态数" }], { yZero: true });
+  redraw();
+})();
+
+/* ============ 互动 2-B 子回合分解器 ============ */
+(function () {
+  const env = makeBookEnv({ rForbidden: -1, rBoundary: -1, rTarget: 1 });
+  const GAMMA = 0.9, LEN = 12;
+  let ep = null, pickedIdx = null;
+
+  function genEpisode() {
+    let s = randInt(25);
+    const steps = []; // {s, a, r}（r 是执行 a 后得到的奖励）
+    for (let t = 0; t < LEN; t++) {
+      const a = randInt(5);
+      const [s2, r] = env.step(s, a);
+      steps.push({ s, a, r });
+      s = s2;
+    }
+    return steps;
+  }
+  function returns() { // G[t]：从第 t 步的 (s,a) 出发的子回合回报
+    const G = new Array(ep.length);
+    let g = 0;
+    for (let t = ep.length - 1; t >= 0; t--) { g = ep[t].r + GAMMA * g; G[t] = g; }
+    return G;
+  }
+  function mode() { return document.querySelector('input[name=subMode]:checked').value; }
+  function sampleIdx() { // 当前口径下被「记账」的访问下标集合
+    const m = mode();
+    if (m === "initial") return new Set([0]);
+    if (m === "every") return new Set(ep.map((_, i) => i));
+    const seen = new Set(), out = new Set();
+    ep.forEach((st, i) => {
+      const k = st.s + ":" + st.a;
+      if (!seen.has(k)) { seen.add(k); out.add(i); }
+    });
+    return out;
+  }
+  function render() {
+    const G = returns(), marks = sampleIdx();
+    const parts = [];
+    ep.forEach((st, i) => {
+      const [r, c] = BOOK.rc(st.s);
+      const cls = ["chip"];
+      if (pickedIdx !== null) cls.push(i >= pickedIdx ? "lit" : "dim");
+      if (marks.has(i)) cls.push("mark");
+      parts.push(`<span class="${cls.join(" ")}" data-i="${i}" title="G=${G[i].toFixed(3)}">s(${r},${c})${BOOK.ACT_GLYPH[st.a]}</span>`);
+      if (i < ep.length - 1) parts.push(`<span class="arrowchar">r=${st.r}→</span>`);
+      else parts.push(`<span class="arrowchar">r=${st.r}→ ⋯</span>`);
+    });
+    $("subChips").innerHTML = parts.join("");
+    document.querySelectorAll("#subChips .chip").forEach(el => {
+      el.onclick = () => { pickedIdx = +el.dataset.i; render(); };
+    });
+    let txt = `当前口径：${mode()}-visit → 这条轨迹贡献 ${marks.size} 个回报样本（金圈节点）`;
+    if (pickedIdx !== null) {
+      const st = ep[pickedIdx], [r, c] = BOOK.rc(st.s);
+      txt += `\n选中第 ${pickedIdx} 步：从 (s(${r},${c}), ${BOOK.ACT_GLYPH[st.a]}) 出发的子回合（高亮部分），回报 G = ${G[pickedIdx].toFixed(4)}`;
+    } else {
+      txt += `\n👆 点击节点查看对应的子回合及其回报`;
+    }
+    $("subOut").textContent = txt;
+  }
+  $("subNew").onclick = () => { ep = genEpisode(); pickedIdx = null; render(); };
+  document.querySelectorAll('input[name=subMode]').forEach(el => el.onchange = render);
+  ep = genEpisode(); render();
+})();
+
+/* ============ 互动 2-C MC Exploring Starts 训练器 ============ */
+(function () {
+  const env = makeBookEnv({ rForbidden: -10, rBoundary: -1, rTarget: 1 });
+  const GAMMA = 0.9, T = 100;
+  const OPT = bookValueIteration(env, GAMMA);
+  const optMean = OPT.V.reduce((a, b) => a + b, 0) / 25;
+  let q, retSum, retNum, pol, visits, nEp, gapHist, gapX;
+
+  function reset() {
+    q = Array.from({ length: 25 }, () => new Float64Array(5));
+    retSum = Array.from({ length: 25 }, () => new Float64Array(5));
+    retNum = Array.from({ length: 25 }, () => new Float64Array(5));
+    pol = new Int8Array(25);
+    for (let s = 0; s < 25; s++) pol[s] = randInt(5);
+    visits = new Float64Array(25);
+    nEp = 0; gapHist = []; gapX = [];
+    draw();
+  }
+  function episode() {
+    let s, a;
+    if ($("esOn").checked) { s = randInt(25); a = randInt(5); }
+    else { s = 0; a = pol[0]; }
+    const steps = [];
+    for (let t = 0; t < T; t++) {
+      const [s2, r] = env.step(s, a);
+      steps.push({ s, a, r });
+      visits[s]++;
+      s = s2; a = pol[s];
+    }
+    let g = 0;
+    for (let t = steps.length - 1; t >= 0; t--) {
+      g = GAMMA * g + steps[t].r;
+      const st = steps[t];
+      retSum[st.s][st.a] += g; retNum[st.s][st.a]++;
+      q[st.s][st.a] = retSum[st.s][st.a] / retNum[st.s][st.a];
+      let best = -Infinity, ba = 0;
+      for (let x = 0; x < 5; x++) if (q[st.s][x] > best + 1e-12) { best = q[st.s][x]; ba = x; }
+      pol[st.s] = ba;
+    }
+    nEp++;
+  }
+  function gap() {
+    const Vp = bookEvalDet(env, pol, GAMMA);
+    let d = 0;
+    for (let s = 0; s < 25; s++) d += OPT.V[s] - Vp[s];
+    return d / 25;
+  }
+  function coverage() {
+    let n = 0;
+    for (let s = 0; s < 25; s++) for (let a = 0; a < 5; a++) if (retNum[s][a] > 0) n++;
+    return n;
+  }
+  function run(n) {
+    const every = Math.max(1, Math.floor(n / 60));
+    for (let i = 0; i < n; i++) { episode(); if (i % every === 0 || i === n - 1) { gapHist.push(gap()); gapX.push(nEp); } }
+    draw();
+  }
+  function draw() {
+    const V = new Float64Array(25);
+    for (let s = 0; s < 25; s++) { let b = -Infinity; for (let a = 0; a < 5; a++) b = Math.max(b, q[s][a]); V[s] = (b === -Infinity ? 0 : b); }
+    drawBookGrid($("esGrid"), {
+      values: V, policy: pol, cell: 66,
+      heat: $("esHeat").checked ? visits : null, tint: !$("esHeat").checked,
+    });
+    lineChart($("esChart"), [{ data: gapHist.length ? gapHist : [optMean], color: "#b2452f", label: "与最优策略的平均差距" }], { yZero: true, xvals: gapX.length ? gapX : undefined });
+    const cov = coverage();
+    $("esOut").textContent =
+      `已训练 ${nEp} 回合（每回合 ${T} 步）\n(s,a) 覆盖率：${cov} / 125（${(cov / 125 * 100).toFixed(0)}%)\n` +
+      `当前差距：${gapHist.length ? gapHist[gapHist.length - 1].toFixed(3) : "–"}` +
+      (gapHist.length && gapHist[gapHist.length - 1] < 0.01 ? "  ✓ 已最优" : "");
+  }
+  $("esT1").onclick = () => run(1);
+  $("esT100").onclick = () => run(100);
+  $("esT1000").onclick = () => run(1000);
+  $("esReset").onclick = reset;
+  $("esOn").onchange = reset;
+  $("esHeat").onchange = draw;
+  reset();
+})();
+</script>
+</body>
+</html>
