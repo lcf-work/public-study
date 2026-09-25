@@ -6,7 +6,7 @@
 // Auto-discovers every .jsx under content/ via Vite's import.meta.glob.
 // Drop a file in and it shows up; nothing to register here by hand.
 // ============================================================================
-import { CATEGORIES, STUDIES as META } from "./meta.js";
+import { CATEGORIES, INVEST_SECTIONS, STUDIES as META } from "./meta.js";
 
 // 懒加载：每篇研习单独打包，按需加载（recharts 这类重依赖不拖慢首页）。
 // Lazy modules: each study is its own chunk, loaded on demand.
@@ -35,6 +35,9 @@ export const STUDIES = Object.entries(modules)
     const { category, slug } = parsed;
     const id = `${category}/${slug}`;
     const meta = META[id] || {};
+    const section =
+      meta.section || (category === "invest" ? "worldview" : "");
+    const sectionInfo = INVEST_SECTIONS[section] || null;
     return {
       id,
       path,
@@ -46,6 +49,8 @@ export const STUDIES = Object.entries(modules)
       description: meta.description || "",
       date: meta.date || "",
       tags: meta.tags || [],
+      section,
+      sectionLabel: sectionInfo ? sectionInfo.label : "",
     };
   })
   .filter(Boolean)
@@ -69,6 +74,19 @@ export const CATEGORY_LIST = [...new Set(STUDIES.map((s) => s.category))]
       count: STUDIES.filter((s) => s.category === key).length,
     };
   })
+  .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
+
+// 投资下的栏目：世界观 / 方法论。只列出 INVEST_SECTIONS 里声明过的。
+export const INVEST_SECTION_LIST = Object.entries(INVEST_SECTIONS)
+  .map(([key, info]) => ({
+    key,
+    label: info.label,
+    en: info.en || "",
+    desc: info.desc || "",
+    order: info.order ?? 999,
+    count: STUDIES.filter((s) => s.category === "invest" && s.section === key)
+      .length,
+  }))
   .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
 
 export function findStudy(category, slug) {

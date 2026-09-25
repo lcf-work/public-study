@@ -15,9 +15,26 @@
 // 分类的展示名与排序 / Display label + ordering for each category.
 // key 必须等于 content/ 下的文件夹名。order 越小越靠前。
 export const CATEGORIES = {
-  invest: { label: "投资", en: "Investing", desc: "价值投资与市场认知", order: 1 },
+  invest: { label: "投资", en: "Investing", desc: "世界观与方法论", order: 1 },
   history: { label: "历史", en: "History", desc: "人物与典籍", order: 2 },
   RL: { label: "强化学习", en: "RL", desc: "算法教程与互动实验", order: 3 },
+};
+
+// 投资分类下的栏目。写在每篇研习的 section 字段里。
+// 未写 section 的投资研习默认归入世界观。
+export const INVEST_SECTIONS = {
+  worldview: {
+    label: "世界观",
+    en: "Worldview",
+    desc: "经典、心法与市场认知",
+    order: 1,
+  },
+  method: {
+    label: "方法论",
+    en: "Method",
+    desc: "同股不同价与定价比较",
+    order: 2,
+  },
 };
 
 // 每篇研习的元数据 / Per-study metadata.
@@ -38,6 +55,7 @@ export const STUDIES = {
       "价值投资圣经：市场先生、安全边际、防御型 vs 进取型投资者，配互动自测与买点演示。",
     date: "2026-06-01",
     tags: ["价值投资", "格雷厄姆", "安全边际", "互动"],
+    section: "worldview",
   },
   "invest/intelligent-investor-zweig": {
     title: "聪明的投资者 · 评注版",
@@ -46,6 +64,7 @@ export const STUDIES = {
       "茨威格用 2000 年互联网泡沫逐章印证格雷厄姆，并补上格雷厄姆没讲透的一课——行为金融学与你的大脑。",
     date: "2026-06-02",
     tags: ["价值投资", "茨威格", "行为金融", "评注"],
+    section: "worldview",
   },
   "invest/random-walk-wallstreet": {
     title: "漫步华尔街",
@@ -54,6 +73,7 @@ export const STUDIES = {
       "随机漫步、磐石 vs 空中楼阁、有效市场，以及最坚定的建议——低成本宽基指数基金。含费率复利滑块。",
     date: "2026-06-03",
     tags: ["指数基金", "有效市场", "马尔基尔", "互动"],
+    section: "worldview",
   },
   "invest/five-rules-dorsey": {
     title: "股市真规则",
@@ -62,6 +82,7 @@ export const STUDIES = {
       "多尔西的选股框架：经济护城河、盯自由现金流而非会计利润、按行业看门道、用安全边际估值。含 DCF 演示。",
     date: "2026-06-04",
     tags: ["护城河", "财报分析", "估值", "晨星"],
+    section: "worldview",
   },
   "invest/most-important-thing-marks": {
     title: "投资最重要的事",
@@ -70,6 +91,7 @@ export const STUDIES = {
       "霍华德·马克斯的投资备忘录精粹：第二层思维、价值与价格、风险控制、周期钟摆、逆向投资与防御取胜。",
     date: "2026-06-05",
     tags: ["霍华德·马克斯", "第二层思维", "风险控制", "周期"],
+    section: "worldview",
   },
   "invest/poor-charlie-munger": {
     title: "穷查理宝典",
@@ -78,6 +100,7 @@ export const STUDIES = {
       "查理·芒格的多学科思维格栅：逆向思考、误判心理、能力圈、耐心、好生意，以及如何持续避免愚蠢。",
     date: "2026-06-05",
     tags: ["芒格", "多学科思维", "误判心理", "能力圈"],
+    section: "worldview",
   },
   "invest/AH_premium_analysis": {
     title: "A/H 溢价反转：中芯 vs 澜起",
@@ -86,6 +109,7 @@ export const STUDIES = {
       "对比中芯国际与澜起科技的 A/H 股同股不同价：一个 A 股显著溢价，一个 H 股反向溢价，拆解定价权变化。",
     date: "2026-06-05",
     tags: ["A/H股", "中芯国际", "澜起科技", "硬科技"],
+    section: "method",
   },
   "invest/AH_premium_4way": {
     title: "A/H 溢价光谱：四只 AI 硬件股",
@@ -94,6 +118,7 @@ export const STUDIES = {
       "把四只 AI 硬件 A+H 股排成溢价光谱，观察 A 股溢价、H 股倒挂、流动性、制裁约束与盈利质量的分化。",
     date: "2026-06-05",
     tags: ["A/H股", "AI硬件", "溢价光谱", "港股"],
+    section: "method",
   },
   "invest/stock-operator-guide": {
     title: "股票作手回忆录 · 互动导读",
@@ -102,6 +127,7 @@ export const STUDIES = {
       "以杰西·利弗莫尔为原型的投机经典导读：读盘、坐功、大势、时机、顺势加仓、止损，以及投机者与人性的永恒博弈。",
     date: "2026-06-06",
     tags: ["利弗莫尔", "投机", "趋势交易", "读盘"],
+    section: "worldview",
   },
   "invest/股票作手回忆录_互动导读_点评版": {
     title: "股票作手回忆录 · 点评版导读",
@@ -110,6 +136,7 @@ export const STUDIES = {
       "基于彼得·林奇点评版梳理全书五幕结构：行情会说话、大势与坐功、希望和恐惧、独立思考、操纵真相与交易法则。",
     date: "2026-06-06",
     tags: ["利弗莫尔", "彼得·林奇", "交易心理", "坐功"],
+    section: "worldview",
   },
   "invest/lidaxiao-investment-strategy-guide": {
     title: "李大霄投资战略 · 互动导读",
@@ -118,6 +145,16 @@ export const STUDIES = {
       "围绕余钱投资、价值投资、远离杠杆、核心资产、股债跷跷板与 2007–2024 市场喊话，整理成八卷互动导读。",
     date: "2026-06-08",
     tags: ["李大霄", "价值投资", "A股", "核心资产", "风险控制"],
+    section: "worldview",
+  },
+  "invest/BeatingTheStreet_Guide": {
+    title: "战胜华尔街",
+    subtitle: "Beating the Street · Peter Lynch & John Rothchild",
+    description:
+      "彼得·林奇执掌麦哲伦基金十三年的选股复盘：为什么买股票、业余者的优势、21 个真实案例，以及 25 条黄金法则。按全书章节做成互动导读。",
+    date: "2026-06-09",
+    tags: ["彼得·林奇", "选股", "麦哲伦基金", "黄金法则", "互动导读"],
+    section: "worldview",
   },
   "history/zhougong": {
     title: "周公辅政",

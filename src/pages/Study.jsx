@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
-import { findStudy, CATEGORY_LIST } from "../registry.js";
+import { findStudy, CATEGORY_LIST, INVEST_SECTION_LIST } from "../registry.js";
 
 export default function Study() {
   const { category, slug } = useParams();
@@ -37,6 +37,7 @@ export default function Study() {
   }
 
   const cat = CATEGORY_LIST.find((c) => c.key === study.category);
+  const lane = INVEST_SECTION_LIST.find((s) => s.key === study.section);
 
   return (
     <div className="ss-study">
@@ -48,6 +49,11 @@ export default function Study() {
           <span className={`ss-badge ss-badge-${study.category}`}>
             {cat ? cat.label : study.category}
           </span>
+          {lane && (
+            <span className={`ss-badge ss-badge-lane ss-badge-lane-${lane.key}`}>
+              {lane.label}
+            </span>
+          )}
           <span className="ss-topbar-title">{study.title}</span>
         </div>
       </div>
