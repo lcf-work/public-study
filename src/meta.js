@@ -15,23 +15,24 @@
 // 分类的展示名与排序 / Display label + ordering for each category.
 // key 必须等于 content/ 下的文件夹名。order 越小越靠前。
 export const CATEGORIES = {
-  invest: { label: "投资", en: "Investing", desc: "世界观与方法论", order: 1 },
+  invest: { label: "投资", en: "Investing", desc: "道与术", order: 1 },
   history: { label: "历史", en: "History", desc: "人物与典籍", order: 2 },
   RL: { label: "强化学习", en: "RL", desc: "算法教程与互动实验", order: 3 },
 };
 
 // 投资分类下的栏目。写在每篇研习的 section 字段里。
-// 未写 section 的投资研习默认归入世界观。
+// worldview 展示为「道」，method 展示为「术」。
+// 未写 section 的投资研习默认归入道。
 export const INVEST_SECTIONS = {
   worldview: {
-    label: "世界观",
-    en: "Worldview",
+    label: "道",
+    en: "Dao",
     desc: "经典、心法与市场认知",
     order: 1,
   },
   method: {
-    label: "方法论",
-    en: "Method",
+    label: "术",
+    en: "Shu",
     desc: "同股不同价与定价比较",
     order: 2,
   },
@@ -163,6 +164,15 @@ export const STUDIES = {
       "段永平 2006 年至 2025 年问答的互动导读：买股票就是买公司、做对的事情把事情做对，再到商业模式、企业文化，以及苹果、茅台等公司点评。",
     date: "2026-09-26",
     tags: ["段永平", "买股票就是买公司", "商业模式", "企业文化", "互动导读"],
+    section: "worldview",
+  },
+  "invest/ThinkingFastSlowGuide": {
+    title: "思考，快与慢",
+    subtitle: "Thinking, Fast and Slow · Daniel Kahneman",
+    description:
+      "卡尼曼的判断与决策互动导读：系统 1 与系统 2、启发法与偏差、过度自信、前景理论，以及体验自我和记忆自我。",
+    date: "2026-09-26",
+    tags: ["卡尼曼", "系统1与系统2", "启发法", "前景理论", "互动导读"],
     section: "worldview",
   },
   "history/zhougong": {

@@ -76,7 +76,7 @@ export const CATEGORY_LIST = [...new Set(STUDIES.map((s) => s.category))]
   })
   .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
 
-// 投资下的栏目：世界观 / 方法论。只列出 INVEST_SECTIONS 里声明过的。
+// 投资下的栏目：道 / 术。只列出 INVEST_SECTIONS 里声明过的。
 export const INVEST_SECTION_LIST = Object.entries(INVEST_SECTIONS)
   .map(([key, info]) => ({
     key,

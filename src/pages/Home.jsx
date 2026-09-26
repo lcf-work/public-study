@@ -152,7 +152,7 @@ export default function Home() {
 
       <footer className="ss-footer">
         <p>
-          {STUDIES.length} 篇研习 · {CATEGORY_LIST.length} 个分类 · 投资下设世界观与方法论
+          {STUDIES.length} 篇研习 · {CATEGORY_LIST.length} 个分类 · 投资下设道与术
           · 由 Vite + React 静态生成，托管于 GitHub Pages
         </p>
       </footer>
