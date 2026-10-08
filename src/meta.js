@@ -49,6 +49,14 @@ export const STUDIES = {
     date: "2026-06-11",
     tags: ["强化学习", "蒙特卡洛", "MC", "互动教程", "Python实践"],
   },
+  "RL/ppo-tutorial": {
+    title: "近端策略优化 PPO · 互动式强化学习教程",
+    subtitle: "Proximal Policy Optimization · Reinforcement Learning",
+    description:
+      "五章纯静态网页教程：从 REINFORCE、优势 Actor-Critic、重要性采样走到 PPO 裁剪与 GAE，并在浏览器里训练 CartPole。",
+    date: "2026-10-08",
+    tags: ["强化学习", "PPO", "策略梯度", "Actor-Critic", "互动教程"],
+  },
   "invest/intelligent-investor": {
     title: "聪明的投资者",
     subtitle: "The Intelligent Investor · Benjamin Graham",

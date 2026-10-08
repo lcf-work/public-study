@@ -20,6 +20,10 @@ function copyStaticTutorials() {
           from: resolve(root, "content/RL/mc-tutorial"),
           to: resolve(outDir, "RL/mc-tutorial"),
         },
+        {
+          from: resolve(root, "content/RL/ppo-tutorial"),
+          to: resolve(outDir, "RL/ppo-tutorial"),
+        },
       ];
 
       for (const item of tutorials) {

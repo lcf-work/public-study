@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第1章 策略梯度：直接对策略做梯度上升</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/lib.js"></script>
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand" href="index.html">PPO 互动教程</a>
+  <a class="here" href="ch1.html">1 策略梯度</a>
+  <a href="ch2.html">2 基线·优势·AC</a>
+  <a href="ch3.html">3 重要性采样·信赖域</a>
+  <a href="ch4.html">4 裁剪目标</a>
+  <a href="ch5.html">5 GAE·完整 PPO</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">第 1 章</span>策略梯度：直接对策略做梯度上升</h1>
+<p class="lead">
+价值方法（如 Q-learning）的思路是「先学会评估，再据此选动作」。策略梯度反其道而行：
+<strong>把策略本身当成一个带参数的函数，直接对「期望回报」做梯度上升</strong>。这是通往 PPO 的第一块基石。
+</p>
+
+<h2><span class="secno">1.1</span>为什么直接学策略？</h2>
+<p>
+基于价值的方法要先估出 Q(s,a)，再用 argmax 选动作。这在很多场景下别扭：
+</p>
+<ul>
+  <li><strong>连续动作</strong>：动作是方向盘转角这样的实数，argmax 要在无穷多动作里搜索，很麻烦。直接输出一个动作（分布）则自然得多。</li>
+  <li><strong>需要随机策略</strong>：石头剪刀布的最优策略是「各 1/3」。确定性的 argmax 策略学不出这种刻意的随机；而带参数的概率策略可以。</li>
+  <li><strong>直接优化目标</strong>：我们真正想要的是「回报高」，那就<strong>直接拿回报当目标函数去优化策略</strong>，不绕价值这个中间商。</li>
+</ul>
+<p>
+我们把策略写成 <span class="math">π<sub>θ</sub>(a|s)</span>——一个参数为 θ 的网络，输入状态 s，输出动作的概率分布。两种常见形式：
+</p>
+<ul>
+  <li><strong>离散动作</strong>：网络输出每个动作的「分数」（logits），过一个 <em class="term">softmax</em> 变成概率。</li>
+  <li><strong>连续动作</strong>：网络输出一个高斯分布的均值 μ<sub>θ</sub>(s)（方差可固定或也学），动作从 <span class="math">N(μ<sub>θ</sub>(s), σ²)</span> 采样。</li>
+</ul>
+<p>
+目标函数就是期望回报（演员每局得分的平均）：
+</p>
+<div class="eq">J(θ) = 𝔼<sub>τ~π<sub>θ</sub></sub>[ R(τ) ]，&nbsp; 其中轨迹 τ = (s₀,a₀,r₁,s₁,…)<span class="tag">(1.1)</span></div>
+<p>我们要的是 <span class="math">∇<sub>θ</sub> J(θ)</span>，然后 <em class="term">梯度上升</em> θ ← θ + α∇<sub>θ</sub>J。问题是：回报 R(τ) 由环境产生、根本不可微，怎么对 θ 求梯度？</p>
+
+<h2><span class="secno">1.2</span>得分函数技巧：把梯度「搬」到 log 上</h2>
+<p>
+这里有一个漂亮的恒等式，是整个策略梯度的引擎。对任意以 θ 为参数的分布 p<sub>θ</sub>(x) 和任意函数 f(x)：
+</p>
+<div class="box box-math"><div class="box-title">∂ 得分函数（log 导数）技巧</div>
+<div class="eq">∇<sub>θ</sub> 𝔼<sub>x~p<sub>θ</sub></sub>[f(x)] = 𝔼<sub>x~p<sub>θ</sub></sub>[ f(x) · ∇<sub>θ</sub> log p<sub>θ</sub>(x) ]<span class="tag">(1.2)</span></div>
+推导只用一行：∇𝔼[f] = ∇∫p·f = ∫(∇p)·f = ∫p·(∇p/p)·f = ∫p·(∇log p)·f = 𝔼[f·∇log p]。
+关键一步是 <span class="math">∇p = p·∇log p</span>。注意 f 完全不需要可微——它只是个权重。
+</div>
+<p>
+把它用到 J(θ) 上（R(τ) 当作 f，轨迹概率当作 p<sub>θ</sub>），并利用「轨迹概率里只有策略那部分含 θ，环境转移不含 θ」，就得到<em class="term">策略梯度定理</em>：
+</p>
+<div class="eq">∇<sub>θ</sub> J(θ) = 𝔼<sub>τ</sub>[ ( Σ<sub>t</sub> ∇<sub>θ</sub> log π<sub>θ</sub>(a<sub>t</sub>|s<sub>t</sub>) ) · R(τ) ]<span class="tag">(1.3)</span></div>
+<p>
+读懂它：<strong>梯度方向 = 各步「让所选动作概率更大」的方向（∇log π），再用整条轨迹的回报 R(τ) 加权</strong>。
+回报为正的轨迹，其上所有动作的概率被推高；回报为负的，被压低。这就是「<strong>好动作点赞、坏动作点踩</strong>」。
+环境的不可微，被这一招完全绕开了——我们只对自己能控制的策略求导。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 1-A</span>好动作被点赞：softmax 策略的 REINFORCE</div>
+  <div class="w-body">
+    <p style="margin-top:0">一个最简单的单步问题：4 个动作，各有未知的真实平均奖励（柱内灰条）。策略是 4 个 logits 过 softmax，初始均匀。
+    每一步：按当前概率采样一个动作 a，得到带噪奖励 r，按 <span class="math">θ<sub>j</sub> ← θ<sub>j</sub> + α·r·(𝟙[j=a] − π<sub>j</sub>)</span> 更新（这正是式 (1.3) 的单样本估计）。</p>
+    <div class="controls">
+      <label>学习率 α = <b id="bdLrV">0.10</b><input type="range" id="bdLr" min="1" max="50" value="10"></label>
+      <label>奖励噪声 = <b id="bdNzV">0.5</b><input type="range" id="bdNz" min="0" max="20" value="5"></label>
+      <span class="sep">|</span>
+      <label><input type="checkbox" id="bdShift"> 所有奖励整体 +5</label>
+      <span class="sep">|</span>
+      <button id="bdS1">采样 1 步</button><button id="bdS50">+50</button><button id="bdS500">+500</button>
+      <button class="ghost" id="bdReset">重置</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><div id="bdBars"></div><div class="readout" id="bdOut"></div></div>
+      <div class="wcol"><canvas id="bdChart" class="chart" style="height:200px"></canvas>
+        <p class="small">紫线：最优动作（绿色高亮）的概率；它应当涨向 1。</p></div>
+    </div>
+    <p class="w-tip">试一试：① 直接连点「+500」，看最优动作概率爬升、平均奖励上升——梯度确实在「点赞」好动作；
+    ② 勾选「整体 +5」后重置再训练：所有奖励都变成大正数，学习明显<strong>更慢更抖</strong>——因为此时连「不好的动作」也因为奖励是正的而被点赞，全靠 softmax 归一化才勉强分出高下。
+    这个毛病正是<a class="ref" href="ch2.html">第 2 章「基线」</a>要根治的。</p>
+  </div>
+</div>
+
+<h2><span class="secno">1.3</span>REINFORCE 与「奖励分配」</h2>
+<p>
+把式 (1.3) 变成算法就是 <em class="term">REINFORCE</em>（蒙特卡洛策略梯度）：跑完整回合 → 算回报 → 按式 (1.3) 更新 → 再跑。两个立刻能上的改进：
+</p>
+<ol>
+  <li><strong>奖励-to-go（reward-to-go）</strong>：用「<strong>该动作之后</strong>的回报」<span class="math">G<sub>t</sub>=Σ<sub>t′≥t</sub> γ<sup>t′−t</sup>r<sub>t′</sub></span> 给每个动作打分，而不是整条轨迹的总分。
+  道理很简单：动作 a<sub>t</sub> 影响不了它<strong>之前</strong>发生的奖励，那些分不该算在它头上。这样每个动作拿到更「公平」的分数，方差也更小。</li>
+  <li><strong>折扣 γ</strong>：越远的奖励，和当前动作的因果关系越弱，乘 γ<sup>k</sup> 打折。</li>
+</ol>
+<div class="eq">∇<sub>θ</sub> J ≈ 𝔼[ Σ<sub>t</sub> ∇<sub>θ</sub> log π<sub>θ</sub>(a<sub>t</sub>|s<sub>t</sub>) · G<sub>t</sub> ]<span class="tag">(1.4)</span></div>
+<p>对连续动作的高斯策略，得分函数有个干净的形式 <span class="math">∇<sub>μ</sub> log π = (a − μ)/σ²</span>：更新方向就是「<strong>朝着刚采样到的动作偏移</strong>」，再乘上回报。回报为正就朝它靠拢，为负就远离。下面这个「学习瞄准」的实验把这一点画了出来。</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 1-B</span>学习瞄准：连续动作的策略梯度</div>
+  <div class="w-body">
+    <p style="margin-top:0">动作是平面上的一个点，从高斯分布 <span class="math">N(μ, σ²I)</span> 采样（μ 是要学的「准星」蓝点，σ 是探索范围）。
+    奖励 = −(到红星的距离)。每步采样一个动作（橙点），按 <span class="math">μ ← μ + α·R·(a−μ)/σ²</span> 更新。看准星如何一步步挪向靶心。</p>
+    <div class="controls">
+      <label>学习率 α = <b id="aimLrV">0.02</b><input type="range" id="aimLr" min="1" max="20" value="2"></label>
+      <label>探索 σ = <b id="aimSgV">0.30</b><input type="range" id="aimSg" min="5" max="80" value="30"></label>
+      <span class="sep">|</span>
+      <button id="aimS1">采样 1 步</button><button id="aimS20">+20</button><button id="aimRun">▶ 连续</button>
+      <button class="ghost" id="aimReset">重置（随机靶位）</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="aimStage" class="stage" width="320" height="320"></canvas></div>
+      <div class="wcol"><canvas id="aimChart" class="chart" style="height:200px"></canvas>
+        <div class="readout" id="aimOut"></div></div>
+    </div>
+    <p class="w-tip">试一试：① σ 调大 → 橙点撒得更开（探索多），准星挪动更快但更抖；σ 调小 → 稳但慢，且初始离靶远时几乎学不动（采样根本碰不到靶）。
+    ② 这就是<strong>探索与利用</strong>在连续动作里的体现；σ 也可以交给网络去学。③ 注意更新方向永远是「朝着拿到正奖励的样本」——得分函数 (a−μ)/σ² 的几何意义。</p>
+  </div>
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ①<span class="tag">从零写 REINFORCE 跑 CartPole</span></div>
+  <div class="p-body">
+    <p>实践脚本用纯 numpy 实现了一个小神经网络策略，在经典的 CartPole（平衡杆）上跑 REINFORCE：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/ppo-tutorial/practice</span>
+<span class="cmd">python3 01_reinforce.py</span></pre>
+    <p>它会打印每若干回合的平均回合长度（杆子撑住的步数，越大越好），并存一张学习曲线 PNG。<strong>先只看 <code>USE_BASELINE = False</code> 的版本</strong>，观察：</p>
+    <ul>
+      <li>曲线会上升，但<strong>抖动剧烈</strong>——这就是 REINFORCE 高方差的真面目，下一章要治它。</li>
+      <li>读 <code>policy_gradient_loss()</code>：核心就是 <code>-(logp * G).mean()</code>，对照式 (1.4)。代码里用了 reward-to-go。</li>
+      <li>把脚本顶部 <code>REWARD_TO_GO = False</code>（改回「整条轨迹同一个总分」），再跑——通常更慢更不稳，验证 1.3 节的「奖励分配」为何重要。</li>
+    </ul>
+  </div>
+</div>
+
+<h2><span class="secno">1.4</span>本章小结</h2>
+<ul>
+  <li>策略梯度<strong>直接</strong>把策略参数化并对期望回报 J(θ) 做梯度上升，天然适配连续动作与随机策略。</li>
+  <li><strong>得分函数技巧</strong> ∇𝔼[f]=𝔼[f·∇log p] 把梯度从不可微的环境「搬」到可微的策略 log 概率上。</li>
+  <li>策略梯度定理 (1.3)：梯度 = <strong>回报加权的 ∇log π</strong>——好动作点赞、坏动作点踩。</li>
+  <li>REINFORCE + reward-to-go + γ 是最朴素的可用算法，但<strong>方差极大</strong>，样本利用率低（每批数据只更新一次）。</li>
+</ul>
+<div class="box box-think"><div class="box-title">🤔 承上启下</div>
+两个痛点已经埋下：① 互动 1-A 暴露的「奖励都为正时连坏动作都被点赞」→ 第 2 章用<strong>基线</strong>解决；
+② REINFORCE 高方差 + 数据用一次就扔 → 第 2 章压方差、第 3 章谈数据复用。PPO 正是这两条线的汇合处。
+</div>
+
+<div class="pager">
+  <a href="index.html"><div class="dir">← 返回</div>目录</a>
+  <a class="next" href="ch2.html"><div class="dir">下一章 →</div>第2章 基线、优势与 Actor-Critic</a>
+</div>
+<footer>素材：Sutton &amp; Barto 第13章 · Easy RL 第4章 · OpenAI Spinning Up (VPG)</footer>
+</main>
+
+<script>
+/* ============ 互动 1-A：K 臂 softmax REINFORCE ============ */
+(function () {
+  const TRUE = [1.2, -0.6, 0.4, -1.1];           // 各动作真实平均奖励
+  const NAMES = ["动作 A", "动作 B", "动作 C", "动作 D"];
+  const COLORS = ["#0c7c8c", "#9aa", "#9aa", "#9aa"];
+  const best = TRUE.indexOf(Math.max(...TRUE));
+  let theta, n, sumR, pBestHist, avgR;
+
+  function reset() { theta = [0, 0, 0, 0]; n = 0; sumR = 0; avgR = 0; pBestHist = []; draw(); }
+  function lr() { return +$("bdLr").value / 100; }
+  function noise() { return +$("bdNz").value / 10; }
+  function shift() { return $("bdShift").checked ? 5 : 0; }
+  function step() {
+    const p = softmax(theta);
+    const a = sampleCat(p);
+    const r = TRUE[a] + shift() + gauss() * noise();
+    for (let j = 0; j < 4; j++) theta[j] += lr() * r * ((j === a ? 1 : 0) - p[j]);
+    n++; sumR += r; avgR += ( (TRUE[a]+shift()) - avgR) / n;
+    if (n % Math.max(1, Math.ceil(1)) === 0) pBestHist.push(softmax(theta)[best]);
+  }
+  function run(k) { for (let i = 0; i < k; i++) step(); draw(); }
+  function draw() {
+    const p = softmax(theta);
+    const items = p.map((pi, j) => ({
+      label: NAMES[j] + (j === best ? " ★" : ""), p: pi,
+      color: j === best ? "#2e8b57" : "#0c7c8c", highlight: j === best,
+      sub: "真实奖励 " + TRUE[j].toFixed(1),
+    }));
+    renderBars($("bdBars"), items);
+    lineChart($("bdChart"), [{ data: pBestHist.length ? pBestHist : [p[best]], color: "#0c7c8c", label: "最优动作概率" }], { yZero: true, ymin: 0, ymax: 1, hline: { y: 1, label: "理想 = 1", color: "#bbb" } });
+    $("bdOut").textContent = `采样步数 ${n}    最优动作(${NAMES[best]})概率 ${(p[best] * 100).toFixed(1)}%    近期平均真实奖励 ${avgR.toFixed(3)}` + (shift() ? "\n（已整体 +5：注意学习变慢变抖）" : "");
+  }
+  $("bdLr").oninput = () => { $("bdLrV").textContent = lr().toFixed(2); };
+  $("bdNz").oninput = () => { $("bdNzV").textContent = noise().toFixed(1); };
+  $("bdShift").onchange = reset;
+  $("bdS1").onclick = () => run(1); $("bdS50").onclick = () => run(50); $("bdS500").onclick = () => run(500);
+  $("bdReset").onclick = reset;
+  reset();
+})();
+
+/* ============ 互动 1-B：连续动作高斯策略瞄准 ============ */
+(function () {
+  const cv = $("aimStage"), ctx = cv.getContext("2d"), S = 320;
+  let mu, target, samples, rewHist, n, timer = null;
+  function toPx(p) { return [(p[0] + 1) / 2 * S, (1 - (p[1] + 1) / 2) * S]; }
+  function lr() { return +$("aimLr").value / 100; }
+  function sg() { return +$("aimSg").value / 100; }
+  function reset() {
+    mu = [(Math.random() * 2 - 1) * 0.6, (Math.random() * 2 - 1) * 0.6];
+    target = [(Math.random() * 2 - 1) * 0.7, (Math.random() * 2 - 1) * 0.7];
+    samples = []; rewHist = []; n = 0;
+    if (timer) { clearInterval(timer); timer = null; $("aimRun").textContent = "▶ 连续"; }
+    draw();
+  }
+  function step() {
+    const s = sg();
+    const a = [mu[0] + gauss() * s, mu[1] + gauss() * s];
+    const d2 = (a[0] - target[0]) ** 2 + (a[1] - target[1]) ** 2;
+    const R = -Math.sqrt(d2);
+    // 用相对基线（平均奖励）轻微稳定显示；核心仍是 R·(a-μ)/σ²
+    for (let k = 0; k < 2; k++) mu[k] += lr() * R * (a[k] - mu[k]) / (s * s);
+    mu[0] = clamp(mu[0], -1, 1); mu[1] = clamp(mu[1], -1, 1);
+    samples.push(a); if (samples.length > 40) samples.shift();
+    n++; rewHist.push(R);
+  }
+  function run(k) { for (let i = 0; i < k; i++) step(); draw(); }
+  function draw() {
+    ctx.clearRect(0, 0, S, S);
+    ctx.strokeStyle = "#e3eded"; for (let i = 1; i < 8; i++) { ctx.beginPath(); ctx.moveTo(i / 8 * S, 0); ctx.lineTo(i / 8 * S, S); ctx.moveTo(0, i / 8 * S); ctx.lineTo(S, i / 8 * S); ctx.stroke(); }
+    // 探索圈
+    const mp = toPx(mu);
+    ctx.strokeStyle = "rgba(12,124,140,0.35)"; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.arc(mp[0], mp[1], sg() / 2 * S, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    // 样本
+    ctx.fillStyle = "rgba(217,128,43,0.5)";
+    for (const a of samples) { const q = toPx(a); ctx.beginPath(); ctx.arc(q[0], q[1], 3, 0, 7); ctx.fill(); }
+    // 靶
+    const tp = toPx(target);
+    ctx.fillStyle = "#c0392b"; ctx.font = "22px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("★", tp[0], tp[1]);
+    // 准星
+    ctx.fillStyle = "#0c7c8c"; ctx.beginPath(); ctx.arc(mp[0], mp[1], 6, 0, 7); ctx.fill();
+    ctx.strokeStyle = "#0c7c8c"; ctx.beginPath(); ctx.moveTo(mp[0] - 11, mp[1]); ctx.lineTo(mp[0] + 11, mp[1]); ctx.moveTo(mp[0], mp[1] - 11); ctx.lineTo(mp[0], mp[1] + 11); ctx.stroke();
+    lineChart($("aimChart"), [{ data: rewHist.length ? rewHist : [-1], color: "#0c7c8c", label: "每步奖励 = −距离" }], { hline: { y: 0, label: "命中=0", color: "#bbb" } });
+    const dist = Math.hypot(mu[0] - target[0], mu[1] - target[1]);
+    $("aimOut").textContent = `步数 ${n}    准星到靶心距离 ${dist.toFixed(3)}    σ=${sg().toFixed(2)}`;
+  }
+  $("aimLr").oninput = () => { $("aimLrV").textContent = lr().toFixed(2); };
+  $("aimSg").oninput = () => { $("aimSgV").textContent = sg().toFixed(2); draw(); };
+  $("aimS1").onclick = () => run(1); $("aimS20").onclick = () => run(20);
+  $("aimRun").onclick = () => {
+    if (timer) { clearInterval(timer); timer = null; $("aimRun").textContent = "▶ 连续"; }
+    else { $("aimRun").textContent = "⏸ 暂停"; timer = setInterval(() => run(1), 90); }
+  };
+  $("aimReset").onclick = reset;
+  reset();
+})();
+</script>
+</body>
+</html>

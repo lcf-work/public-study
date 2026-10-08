@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>近端策略优化 PPO · 互动式强化学习教程</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand here" href="index.html">PPO 互动教程</a>
+  <a href="ch1.html">1 策略梯度</a>
+  <a href="ch2.html">2 基线·优势·AC</a>
+  <a href="ch3.html">3 重要性采样·信赖域</a>
+  <a href="ch4.html">4 裁剪目标</a>
+  <a href="ch5.html">5 GAE·完整 PPO</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">互动式强化学习教程</span>近端策略优化 PPO：从策略梯度到能跑的算法</h1>
+<p class="lead">
+PPO（Proximal Policy Optimization）是当今最常用的强化学习算法之一——从 OpenAI 的机器人到对大语言模型做 RLHF，背后多半是它。
+但 PPO 不是凭空出现的，它是<strong>一连串「修补」的终点</strong>：每一步都在解决上一步留下的一个具体痛点。
+这套教程带你<strong>沿着这条修补链一路走到底</strong>，每个关键想法都配一个能在网页里亲手把玩的实验，最后<strong>在浏览器里从零训练出一个会平衡杆子的智能体</strong>。
+</p>
+
+<div class="box box-idea"><div class="box-title">🧭 一句话路线图</div>
+<strong>策略梯度</strong>（直接优化策略，但方差大）→ <strong>基线 / 优势 / Actor-Critic</strong>（压方差）→
+<strong>重要性采样</strong>（想重复利用数据，却带来分布失配）→ <strong>信赖域 TRPO</strong>（限制步子别迈太大，但难算）→
+<strong>PPO 裁剪</strong>（用一行 min-clip 优雅地近似信赖域）→ <strong>GAE + 完整算法</strong>（拼成能跑的工程）。
+每一章解决前一章的一个遗留问题。
+</div>
+
+<div class="cards">
+  <a class="card" href="ch1.html"><div class="no">第 1 章</div><h3>策略梯度：直接对策略做梯度上升</h3>
+    <p>为什么不学价值、直接学策略？得分函数（log 导数）技巧、策略梯度定理与 REINFORCE。亲手看「好动作被点赞」。</p></a>
+  <a class="card" href="ch2.html"><div class="no">第 2 章</div><h3>与方差搏斗：基线、优势与 Actor-Critic</h3>
+    <p>REINFORCE 的诅咒是方差。基线为何能在不引入偏差的前提下压低方差；优势函数「比平均好多少」；评论员登场。</p></a>
+  <a class="card" href="ch3.html"><div class="no">第 3 章</div><h3>同策略之困：重要性采样与信赖域</h3>
+    <p>数据用一次就扔太浪费 → 重要性采样想重复利用 → 但两个策略一远，方差爆炸、目标失真 → 信赖域 TRPO 限制步长。</p></a>
+  <a class="card" href="ch4.html"><div class="no">第 4 章</div><h3>PPO 的神来之笔：裁剪式目标函数</h3>
+    <p>本教程的核心。一行 min-clip 如何「软性」实现信赖域。亲手拆解那张经典的裁剪目标图，看梯度在何处被「掐断」。</p></a>
+  <a class="card" href="ch5.html"><div class="no">第 5 章</div><h3>完整的 PPO：GAE 与亲手训练 CartPole</h3>
+    <p>GAE 的偏差-方差旋钮 λ；完整损失（裁剪+价值+熵）；然后<strong>在浏览器里实时训练</strong>，并对比「关掉裁剪」的崩溃。</p></a>
+</div>
+
+<h2>使用方法</h2>
+<h3>网页部分</h3>
+<p>纯静态页面，零外部依赖（连画神经网络训练都是手写的 JS）。直接用浏览器打开即可，或起一个本地服务：</p>
+<pre class="term"><span class="cmd">xdg-open ~/studyspace/RL/ppo-tutorial/index.html</span>
+<span class="cm"># 或</span>
+<span class="cmd">cd ~/studyspace/RL/ppo-tutorial && python3 -m http.server 8000</span>   <span class="cm"># 访问 http://localhost:8000</span></pre>
+<p>每个紫青色面板都是互动实验，<strong>先动手玩，再往下读</strong>。第 5 章的训练动画建议在性能尚可的机器上看。</p>
+
+<h3>编程实践部分</h3>
+<p>实践脚本在 <code>practice/</code>，<strong>纯 numpy 从零实现</strong>（不依赖 PyTorch / Gym），与网页里的 JS 引擎算法一致：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/ppo-tutorial/practice</span>
+<span class="cmd">python3 01_reinforce.py</span>       <span class="cm"># 第1–2章：REINFORCE（可开关基线）</span>
+<span class="cmd">python3 02_actor_critic.py</span>    <span class="cm"># 第2章：优势 Actor-Critic</span>
+<span class="cmd">python3 03_ppo.py</span>             <span class="cm"># 第4–5章：完整 PPO（裁剪 + GAE）</span></pre>
+<p>每个脚本顶部都有「实验区」常量，正文实践环节会提示你改哪些、看什么。</p>
+
+<h2>需要的前置知识</h2>
+<p>会有帮助但并非必需：状态/动作/奖励/回报、折扣因子 γ、状态价值 V(s) 与动作价值 Q(s,a) 的概念、以及「梯度下降/上升」的基本直觉。
+如果你做过本目录下的<a class="ref" href="../mc-tutorial/index.html">蒙特卡洛互动教程</a>，那些「采样求期望」「优势/基线」的直觉会在这里反复用到。</p>
+
+<h2>参考与致谢</h2>
+<ul>
+  <li>Schulman et al., 2017, <em>Proximal Policy Optimization Algorithms</em>（PPO 原论文，裁剪目标的出处）。</li>
+  <li>Schulman et al., 2015, <em>Trust Region Policy Optimization</em>（TRPO）；Schulman et al., 2016, <em>High-Dimensional Continuous Control Using Generalized Advantage Estimation</em>（GAE）。</li>
+  <li>Sutton &amp; Barto, <em>Reinforcement Learning: An Introduction</em>(2nd ed.) 第 13 章 Policy Gradient Methods。</li>
+  <li>OpenAI <em>Spinning Up</em>（VPG / TRPO / PPO 的极佳教学）；Huang et al., 2022, <em>The 37 Implementation Details of PPO</em>（ICLR Blog）；Lilian Weng, <em>Policy Gradient Algorithms</em>。</li>
+  <li>《Easy RL：强化学习教程》第 4、5、9 章（中文术语与直觉）。CartPole 动力学取自经典 OpenAI Gym。</li>
+</ul>
+
+<footer>PPO 互动教程 · 共 5 章 · 浏览器内可训练 · 生成于 2026-06</footer>
+</main>
+</body>
+</html>

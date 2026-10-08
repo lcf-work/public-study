@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第4章 PPO 的神来之笔：裁剪式目标函数</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/lib.js"></script>
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand" href="index.html">PPO 互动教程</a>
+  <a href="ch1.html">1 策略梯度</a>
+  <a href="ch2.html">2 基线·优势·AC</a>
+  <a href="ch3.html">3 重要性采样·信赖域</a>
+  <a class="here" href="ch4.html">4 裁剪目标</a>
+  <a href="ch5.html">5 GAE·完整 PPO</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">第 4 章</span>PPO 的神来之笔：裁剪式目标函数</h1>
+<p class="lead">
+TRPO 要解带约束的优化，又重又难。PPO 的洞见是：<strong>与其外加一个 KL 约束，不如把「别迈太大」直接写进目标函数</strong>。
+方法是一个朴素到不可思议的操作——<em class="term">裁剪（clip）</em>。理解了这一章那张图，你就理解了 PPO 的全部精髓。
+</p>
+
+<h2><span class="secno">4.1</span>两种 PPO</h2>
+<p>PPO 原论文给了两个变体，都想达到「让 π<sub>θ</sub> 别离 π<sub>old</sub> 太远」的效果：</p>
+<ul>
+  <li><strong>PPO-Penalty（KL 惩罚）</strong>：把 KL 从硬约束变成目标里的<strong>软惩罚项</strong> <span class="math">L − β·KL</span>，并自适应调 β（KL 太大就加大 β，太小就减小）。这是把 TRPO 的约束「松绑」成正则项。</li>
+  <li><strong>PPO-Clip（裁剪）</strong>：根本不算 KL，直接<strong>裁剪概率比</strong>，让「迈太大」无利可图。这是实践中默认、最常用的版本，也是本章主角。</li>
+</ul>
+
+<h2><span class="secno">4.2</span>裁剪目标函数</h2>
+<p>回忆概率比 <span class="math">r(θ)=π<sub>θ</sub>(a|s)/π<sub>old</sub>(a|s)</span>，代理目标是 <span class="math">r(θ)·A</span>。PPO-Clip 把它改成：</p>
+<div class="box box-math"><div class="box-title">∂ PPO-Clip 目标（每个样本）</div>
+<div class="eq">L<sup>CLIP</sup>(θ) = 𝔼<sub>t</sub>[ min( r<sub>t</sub>(θ)·A<sub>t</sub>,&nbsp; clip(r<sub>t</sub>(θ), 1−ε, 1+ε)·A<sub>t</sub> ) ]<span class="tag">(4.1)</span></div>
+其中 clip(r, 1−ε, 1+ε) 把比率夹在区间 [1−ε, 1+ε] 内（超出就截到边界）；ε 是超参，常取 0.1~0.3。
+外面套一个 <strong>min</strong>，在「原始项」和「裁剪项」里取较小的那个。
+</div>
+<p>
+这个 min 看着古怪，效果却极妙：它让 L<sup>CLIP</sup> 成为真实代理目标的一个<strong>悲观下界</strong>，
+并且<strong>一旦概率比朝「对我们有利的方向」越过边界，梯度就被掐断</strong>，策略再也没有动力继续把这一步迈大。
+光说不直观，把那张经典的图拆开,亲手玩一玩——这是本教程最该停留的一个面板。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 4-A · 核心</span>拆解裁剪目标：那张经典的图</div>
+  <div class="w-body">
+    <p style="margin-top:0">横轴是概率比 r（r=1 表示新旧策略一致）。
+    <span style="color:#9aa"><b>灰虚线 = 原始项 r·A</b></span>，<span style="color:#d9802b"><b>橙虚线 = 裁剪项</b></span>，
+    <span style="color:#0c7c8c"><b>青实线 = L<sup>CLIP</sup>=min(两者)</b></span>（就是 PPO 真正优化的）。绿色阴影是<strong>梯度被掐断（=0）</strong>的区域。
+    拖动滑块改变优势 A 的正负与大小、裁剪幅度 ε，再拖动「当前 r」那个红点，看每一步该往哪走、会不会被刹住。</p>
+    <div class="hyper">
+      <label>优势 A = <span class="hv" id="clA">+1.0</span><input type="range" id="clAr" min="-25" max="25" value="10"></label>
+      <label>裁剪幅度 ε = <span class="hv" id="clE">0.20</span><input type="range" id="clEr" min="5" max="50" value="20"></label>
+      <label>当前概率比 r = <span class="hv" id="clR">1.00</span><input type="range" id="clRr" min="30" max="200" value="100"></label>
+    </div>
+    <div class="controls">
+      <button id="clPos">设 A &gt; 0（好动作）</button>
+      <button id="clNeg">设 A &lt; 0（坏动作）</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="clChart" class="chart" style="height:280px"></canvas></div>
+      <div class="wcol"><div class="readout" id="clOut"></div>
+      <p class="w-tip" style="margin-top:8px">四种情形（务必逐一拖出来看）：
+      <br>① <b>A&gt;0 且 r&lt;1+ε</b>：在爬坡，梯度推 r 增大（多采这个好动作）。
+      <br>② <b>A&gt;0 且 r≥1+ε</b>：<span style="color:#2e6b45">进入绿区，梯度=0</span>——好动作也<strong>点到为止</strong>，不许一次推太猛。
+      <br>③ <b>A&lt;0 且 r&gt;1−ε</b>：梯度推 r 减小（少采这个坏动作）。
+      <br>④ <b>A&lt;0 且 r≤1−ε</b>：<span style="color:#2e6b45">进入绿区，梯度=0</span>——坏动作也<strong>压到点为止</strong>。</p></div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="secno">4.3</span>为什么是 min？为什么不对称？</h2>
+<p>把图读透，会发现 min 的两层深意：</p>
+<ol>
+  <li><strong>min 让它成为「悲观下界」</strong>：在任何 r 处，L<sup>CLIP</sup> 都不超过原始代理目标 r·A。优化一个下界，意味着「保证不会高估改进」——
+  这正是 TRPO「单调改进」思想的廉价近似。我们宁可低估，也不愿被代理目标骗去迈致命的一步（第 3 章的悬崖）。</li>
+  <li><strong>裁剪是「单向刹车」</strong>：注意上面情形②④——只有当 r 朝着<strong>让目标变好的方向</strong>越界时，梯度才被掐断。
+  反过来，如果 r 跑到了<strong>错误一侧</strong>（A&gt;0 却 r&lt;1，或 A&lt;0 却 r&gt;1），原始项仍然生效、<strong>梯度照常把策略拉回来</strong>——
+  裁剪从不阻拦「纠错」，只阻拦「贪进」。</li>
+</ol>
+<div class="box box-idea"><div class="box-title">💡 一句话抓住 PPO-Clip</div>
+<strong>好动作就多给点概率、但每轮只许加到 1+ε 为止；坏动作就少给点、每轮只许减到 1−ε 为止。</strong>
+到了边界，梯度归零、收手。如此一来，每次更新天然就被限制在 π<sub>old</sub> 附近——<strong>不用算 KL、不用解约束，普通 Adam 一把梭</strong>，却实现了信赖域的效果。
+</div>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 4-B</span>一整批样本：clip fraction 从哪来</div>
+  <div class="w-body">
+    <p style="margin-top:0">真实训练里，一个 minibatch 有成百上千个 (r, A) 样本。下面随机生成一批，每个点按是否被裁剪着色
+    （<span style="color:#c0392b">红=被裁剪、梯度为 0</span>，<span style="color:#0c7c8c">青=仍在贡献梯度</span>）。被裁剪样本的占比就是训练时常看的诊断量 <em class="term">clip fraction</em>。</p>
+    <div class="controls">
+      <label>裁剪幅度 ε = <b id="bcEV">0.20</b><input type="range" id="bcE" min="5" max="50" value="20"></label>
+      <label>策略漂移程度 = <b id="bcDV">中</b><input type="range" id="bcD" min="0" max="3" value="1"></label>
+      <button id="bcDraw">🎲 重新采一批</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="bcChart" class="chart" style="height:240px"></canvas></div>
+      <div class="wcol"><div class="readout" id="bcOut"></div>
+      <p class="w-tip" style="margin-top:8px">观察：① 策略与 π<sub>old</sub> 越接近（漂移小），r 越集中在 1 附近，clip fraction 越低；
+      ② 漂移变大（多个 epoch 反复优化同一批数据时就会这样），越过 1±ε 的点变多，clip fraction 升高——
+      这是「该停下来、重新采样」的信号；③ 第 5 章实时训练时会一直显示这个数，通常健康值在 0.1~0.3。</p></div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="secno">4.4</span>PPO-Clip 算法全貌</h2>
+<div class="box box-algo"><div class="box-title">📋 算法：PPO-Clip（一轮迭代）</div>
+<ol>
+  <li><strong>采样</strong>：用当前策略 π<sub>θ</sub>（记为 π<sub>old</sub>）跑若干步，收集 (s, a, r) 和当时的 log 概率、价值估计。</li>
+  <li><strong>算优势</strong>：用评论员 V 估计每步的优势 A<sub>t</sub>（下一章用 GAE）；记录 ret<sub>t</sub> 作为价值目标。</li>
+  <li><strong>多轮更新</strong>：把这批数据分成 minibatch，重复 K 个 epoch：
+    <ul>
+      <li>算概率比 r<sub>t</sub>=exp(log π<sub>θ</sub> − log π<sub>old</sub>)；</li>
+      <li>最大化 L<sup>CLIP</sup>（式 4.1）更新演员；最小化 (V−ret)² 更新评论员；可加熵奖励鼓励探索。</li>
+    </ul></li>
+  <li>丢弃这批数据，回到第 1 步。</li>
+</ol>
+注意：正因为有裁剪「兜底」，第 3 步才敢在同一批数据上更新 K 次（K 常取 3~10）——这正是 PPO 比 REINFORCE 样本高效的来源。
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ④<span class="tag">读懂裁剪目标的几行代码</span></div>
+  <div class="p-body">
+    <p>打开 PPO 实现，定位裁剪损失那几行——它和式 (4.1) 一一对应：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/ppo-tutorial/practice</span>
+<span class="cmd">grep -n "clip\|ratio\|surr\|min" 03_ppo.py</span></pre>
+    <p>核心通常长这样（numpy 版）：</p>
+<pre class="term"><span class="cm"># ratio = exp(logp_new - logp_old);  adv 已标准化</span>
+surr1 = ratio * adv
+surr2 = np.clip(ratio, 1-EPS, 1+EPS) * adv
+loss_pi = -np.minimum(surr1, surr2).mean()   <span class="cm"># 注意负号：最大化→最小化</span></pre>
+    <p><strong>实验</strong>：① 把 <code>EPS</code> 从 0.2 改成 0.05（很紧）和 0.6（很松），到第 5 章训练时对比稳定性；
+    ② 故意去掉裁剪（<code>loss_pi = -surr1.mean()</code>），就退化成第 3 章那个危险的朴素代理目标——第 5 章的「关掉裁剪」开关正是干这个，你会亲眼看到它崩。</p>
+  </div>
+</div>
+
+<h2><span class="secno">4.5</span>本章小结</h2>
+<ul>
+  <li>PPO 把 TRPO 的「信赖域」从外部约束<strong>内化进目标函数</strong>：PPO-Penalty 用自适应 KL 惩罚，PPO-Clip 用裁剪。</li>
+  <li>裁剪目标 <span class="math">min(r·A, clip(r,1−ε,1+ε)·A)</span>：对有利方向的越界<strong>掐断梯度</strong>（点到为止），对错误方向<strong>照常纠正</strong>。</li>
+  <li>min 使其成为代理目标的<strong>悲观下界</strong>，避免被「画饼」骗去迈致命大步。</li>
+  <li>有了裁剪兜底，才敢在<strong>同一批数据上更新多次</strong>（K epoch），大幅提升样本效率——这就是 PPO 又稳又省的根源。</li>
+</ul>
+<div class="box box-think"><div class="box-title">🤔 承上启下</div>
+裁剪目标里那个优势 A<sub>t</sub> 还没说清楚怎么算最好——用一步 TD（低方差高偏差）还是整条回报（高方差低偏差）？
+第 5 章的 <strong>GAE</strong> 给出一个可调的折中，然后我们就把所有零件拼起来，<strong>在浏览器里真刀真枪训练一个智能体</strong>。
+</div>
+
+<div class="pager">
+  <a href="ch3.html"><div class="dir">← 上一章</div>第3章 重要性采样·信赖域</a>
+  <a class="next" href="ch5.html"><div class="dir">下一章 →</div>第5章 GAE 与完整 PPO·亲手训练</a>
+</div>
+<footer>素材：PPO 原论文（Schulman et al., 2017）· OpenAI Spinning Up (PPO) · Easy RL 第5章</footer>
+</main>
+
+<script>
+/* ============ 互动 4-A：裁剪目标核心图 ============ */
+(function () {
+  function A() { return +$("clAr").value / 10; }
+  function eps() { return +$("clEr").value / 100; }
+  function rcur() { return +$("clRr").value / 100; }
+  function draw() {
+    const a = A(), e = eps(), rc = rcur();
+    const unc = [], clp = [], obj = [];
+    for (let i = 0; i <= 170; i++) {
+      const r = 0.3 + i / 170 * (2.0 - 0.3);
+      const u = r * a, c = clamp(r, 1 - e, 1 + e) * a;
+      unc.push([r, u]); clp.push([r, c]); obj.push([r, Math.min(u, c)]);
+    }
+    // 零梯度（绿）区域：A>0 → r≥1+e；A<0 → r≤1-e
+    const bands = [];
+    if (a > 0) bands.push({ x0: 1 + e, x1: 2.0, color: "rgba(46,139,87,0.12)" });
+    else if (a < 0) bands.push({ x0: 0.3, x1: 1 - e, color: "rgba(46,139,87,0.12)" });
+    const cl = ppoClip(rc, a, e);
+    xyChart($("clChart"), [
+      { pts: unc, color: "#9aa", label: "原始 r·A", dash: [5, 3], width: 1.5 },
+      { pts: clp, color: "#d9802b", label: "裁剪项", dash: [3, 3], width: 1.5 },
+      { pts: obj, color: "#0c7c8c", label: "L_CLIP = min", width: 3 },
+    ], {
+      xmin: 0.3, xmax: 2.0, xLabel: "概率比 r", yLabel: "目标值", bands,
+      vlines: [
+        { x: 1, label: "r=1", color: "#bbb", dash: [2, 2] },
+        { x: 1 - e, label: "1−ε", color: "#d9802b", dash: [2, 2] },
+        { x: 1 + e, label: "1+ε", color: "#d9802b", dash: [2, 2] },
+      ],
+      markers: [{ x: rc, y: cl.obj, color: "#c0392b", label: "当前 r", r: 6 }],
+    });
+    let verdict, arrow;
+    if (Math.abs(a) < 1e-9) { verdict = "A=0：这个动作不好不坏，没有更新信号。"; arrow = "—"; }
+    else if (cl.gradZero) { verdict = `🛑 梯度被掐断（绿区）。${a > 0 ? "好动作已加到 1+ε，点到为止" : "坏动作已减到 1−ε，压到为止"}，本轮不再推动。`; arrow = "⏹ 停"; }
+    else if (a > 0) { verdict = (rc < 1 ? "↗ 仍在错误一侧(r<1)，梯度全力把好动作的概率拉回并推高。" : "↗ 正在加大这个好动作的概率（未到 1+ε）。"); arrow = "推 r ↑"; }
+    else { verdict = (rc > 1 ? "↘ 仍在错误一侧(r>1)，梯度全力把坏动作的概率拉回并压低。" : "↘ 正在减小这个坏动作的概率（未到 1−ε）。"); arrow = "推 r ↓"; }
+    $("clOut").textContent =
+      `A = ${a.toFixed(1)}（${a > 0 ? "好动作" : a < 0 ? "坏动作" : "中性"}）  ε = ${e.toFixed(2)}  当前 r = ${rc.toFixed(2)}\n` +
+      `原始 r·A = ${cl.unclipped.toFixed(3)}    裁剪项 = ${cl.clipped.toFixed(3)}\n` +
+      `L_CLIP = min = ${cl.obj.toFixed(3)}    梯度方向：${arrow}\n\n${verdict}`;
+  }
+  $("clAr").oninput = () => { $("clA").textContent = (A() >= 0 ? "+" : "") + A().toFixed(1); draw(); };
+  $("clEr").oninput = () => { $("clE").textContent = eps().toFixed(2); draw(); };
+  $("clRr").oninput = () => { $("clR").textContent = rcur().toFixed(2); draw(); };
+  $("clPos").onclick = () => { $("clAr").value = 10; $("clA").textContent = "+1.0"; draw(); };
+  $("clNeg").onclick = () => { $("clAr").value = -10; $("clA").textContent = "-1.0"; draw(); };
+  draw();
+})();
+
+/* ============ 互动 4-B：批量 clip fraction ============ */
+(function () {
+  let pts = [];
+  const DRIFT = [0.05, 0.12, 0.22, 0.38];
+  const DRIFTNAME = ["很小", "小", "中", "大"];
+  function eps() { return +$("bcE").value / 100; }
+  function gen() {
+    const d = DRIFT[+$("bcD").value];
+    pts = [];
+    for (let i = 0; i < 300; i++) {
+      // log-ratio 漂移 ~ N(小偏置, d)，优势 ~ N(0,1)
+      const lr = gauss() * d + (Math.random() - 0.5) * d * 0.5;
+      const r = Math.exp(lr);
+      const A = gauss();
+      pts.push([r, A]);
+    }
+    draw();
+  }
+  function draw() {
+    const e = eps();
+    let clipped = 0;
+    const cpos = [], cclip = [];
+    for (const [r, A] of pts) {
+      const cl = ppoClip(r, A, e);
+      if (cl.gradZero) { cclip.push([r, A]); clipped++; } else cpos.push([r, A]);
+    }
+    xyChart($("bcChart"), [
+      { pts: cpos, color: "#0c7c8c", dots: true, r: 2.6, label: "仍贡献梯度" },
+      { pts: cclip, color: "#c0392b", dots: true, r: 2.6, label: "被裁剪(grad=0)" },
+    ], {
+      xmin: 0.3, xmax: 2.0, ymin: -3, ymax: 3, xLabel: "概率比 r", yLabel: "优势 A",
+      vlines: [{ x: 1 - e, color: "#d9802b", dash: [3, 3] }, { x: 1 + e, color: "#d9802b", dash: [3, 3] }, { x: 1, color: "#bbb", dash: [2, 2] }],
+      bands: [{ x0: 1 + e, x1: 2.0, color: "rgba(192,57,43,0.05)" }, { x0: 0.3, x1: 1 - e, color: "rgba(192,57,43,0.05)" }],
+    });
+    $("bcOut").textContent =
+      `ε = ${e.toFixed(2)}    策略漂移：${DRIFTNAME[+$("bcD").value]}\n` +
+      `被裁剪样本：${clipped} / ${pts.length}\n` +
+      `clip fraction = ${(clipped / pts.length * 100).toFixed(1)}%\n\n` +
+      `落在右上(A>0,r>1+ε)与左下(A<0,r<1−ε)红区的点被掐断梯度；\n其余点继续把策略往正确方向推。`;
+  }
+  $("bcE").oninput = () => { $("bcEV").textContent = eps().toFixed(2); draw(); };
+  $("bcD").oninput = () => { $("bcDV").textContent = DRIFTNAME[+$("bcD").value]; gen(); };
+  $("bcDraw").onclick = gen;
+  gen();
+})();
+</script>
+</body>
+</html>

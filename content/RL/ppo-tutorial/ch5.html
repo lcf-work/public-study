@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第5章 完整的 PPO：GAE 与亲手训练 CartPole</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/lib.js"></script>
+<script src="js/ppo.js"></script>
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand" href="index.html">PPO 互动教程</a>
+  <a href="ch1.html">1 策略梯度</a>
+  <a href="ch2.html">2 基线·优势·AC</a>
+  <a href="ch3.html">3 重要性采样·信赖域</a>
+  <a href="ch4.html">4 裁剪目标</a>
+  <a class="here" href="ch5.html">5 GAE·完整 PPO</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">第 5 章</span>完整的 PPO：GAE 与亲手训练 CartPole</h1>
+<p class="lead">
+最后一块拼图是<strong>怎么把优势 A<sub>t</sub> 估得又准又稳</strong>——<em class="term">GAE</em> 给出一个可调的偏差-方差旋钮。
+拼上它，我们就把五章的所有零件组装成完整的 PPO，然后<strong>在你的浏览器里、用纯手写的神经网络，从零训练出一个会平衡杆子的智能体</strong>。
+</p>
+
+<h2><span class="secno">5.1</span>GAE：偏差-方差的旋钮</h2>
+<p>
+第 2 章留下一根轴：估优势时，用<strong>一步 TD</strong>（δ<sub>t</sub>=r<sub>t</sub>+γV(s<sub>t+1</sub>)−V(s<sub>t</sub>)）方差小但有偏；用<strong>整条回报</strong>（G<sub>t</sub>−V(s<sub>t</sub>)）无偏但方差大。
+<em class="term">广义优势估计（GAE）</em>把两端用一个参数 λ∈[0,1] 平滑连起来：它是各步 TD 残差的指数加权和。
+</p>
+<div class="box box-math"><div class="box-title">∂ GAE 公式</div>
+<div class="eq">δ<sub>t</sub> = r<sub>t</sub> + γV(s<sub>t+1</sub>) − V(s<sub>t</sub>)&nbsp;&nbsp;（TD 残差）</div>
+<div class="eq">Â<sub>t</sub><sup>GAE(γ,λ)</sup> = Σ<sub>l≥0</sub> (γλ)<sup>l</sup> δ<sub>t+l</sub> = δ<sub>t</sub> + γλ·Â<sub>t+1</sub>&nbsp;&nbsp;（可递归计算）<span class="tag">(5.1)</span></div>
+<ul style="margin:6px 0">
+  <li><strong>λ = 0</strong>：Â<sub>t</sub> = δ<sub>t</sub>，退化成<strong>一步 TD</strong>（低方差、高偏差，重度依赖评论员）。</li>
+  <li><strong>λ = 1</strong>：Â<sub>t</sub> = Σγ<sup>l</sup>δ<sub>t+l</sub> = G<sub>t</sub> − V(s<sub>t</sub>)，退化成<strong>蒙特卡洛</strong>（高方差、无自举偏差）。</li>
+</ul>
+</div>
+<p>直觉：λ 控制「<strong>你愿意信任多远的真实奖励，超过多远就交给评论员的估计兜底</strong>」。实践中 λ≈0.95 是甜点。</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 5-A</span>λ 旋钮：信任多远的未来</div>
+  <div class="w-body">
+    <p style="margin-top:0">左图：GAE 给「未来第 l 步 TD 残差」的权重 (γλ)<sup>l</sup>——λ 越大，越多未来的真实奖励被纳入（视野越长）。
+    右图：优势估计的方差随 λ 的变化（噪声越往后累积越多）。拖动 λ 看两者此消彼长。</p>
+    <div class="hyper">
+      <label>λ = <span class="hv" id="gaeLv">0.95</span><input type="range" id="gaeL" min="0" max="100" value="95"></label>
+      <label>γ = <span class="hv" id="gaeGv">0.99</span><input type="range" id="gaeG" min="80" max="100" value="99"></label>
+      <label>奖励噪声 σ = <span class="hv" id="gaeSv">1.0</span><input type="range" id="gaeS" min="1" max="30" value="10"></label>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="gaeW" class="chart" style="height:190px"></canvas>
+        <div class="small" style="text-align:center">权重 (γλ)<sup>l</sup>：GAE 的「有效视野」</div></div>
+      <div class="wcol"><canvas id="gaeV" class="chart" style="height:190px"></canvas>
+        <div class="small" style="text-align:center">优势估计方差 vs λ（当前 λ 标红点）</div></div>
+    </div>
+    <div class="readout" id="gaeOut"></div>
+    <p class="w-tip">观察：① λ→0 权重瞬间衰减（只看眼前一步=TD），方差最低但全靠评论员；② λ→1 权重缓慢衰减（看到很远=MC），方差飙升；
+    ③ λ≈0.95 既纳入足够多真实奖励、方差又没爆——这就是 PPO 默认值的来由。</p>
+  </div>
+</div>
+
+<h2><span class="secno">5.2</span>完整的 PPO 损失</h2>
+<p>实际实现里，PPO 把三项合成一个损失（演员、评论员通常同时训）：</p>
+<div class="eq">L = <span style="color:#0c7c8c">L<sup>CLIP</sup></span> − c<sub>1</sub>·<span style="color:#d9802b">(V<sub>θ</sub>−V<sup>target</sup>)²</span> + c<sub>2</sub>·<span style="color:#b06bce">H[π<sub>θ</sub>]</span><span class="tag">(5.2)</span></div>
+<ul>
+  <li><span style="color:#0c7c8c"><strong>裁剪目标</strong></span>（第 4 章）：让策略朝高优势方向走，但别迈太大。</li>
+  <li><span style="color:#d9802b"><strong>价值损失</strong></span>：把评论员 V 拟合到 GAE 给出的回报目标 ret<sub>t</sub>=Â<sub>t</sub>+V(s<sub>t</sub>)。</li>
+  <li><span style="color:#b06bce"><strong>熵奖励</strong></span>：鼓励策略别过早变得太确定，保持探索。</li>
+</ul>
+<div class="box box-idea"><div class="box-title">💡 「PPO 其实是一堆实现细节」</div>
+论文之外，真正让 PPO 跑得好的还有一串工程细节（社区名篇《The 37 Implementation Details of PPO》）：
+<strong>优势标准化</strong>（每批把 A 归一化到零均值单位方差）、<strong>minibatch 多 epoch</strong>、<strong>梯度裁剪</strong>、
+<strong>观测/奖励归一化</strong>、合适的<strong>网络初始化</strong>（策略输出层用很小的权重，让初始策略接近均匀）等。
+下面这个浏览器内的实现就包含了其中几个关键项——它们不是锦上添花，而是「能不能跑起来」的分水岭。
+</div>
+
+<h2><span class="secno">5.3</span>亲手训练：浏览器里的 PPO 跑 CartPole</h2>
+<p>
+下面是货真价实的 PPO：一个手写的两层神经网络策略 + 一个价值网络，用裁剪目标 + GAE + Adam 在经典的 CartPole（小车倒立摆）上从零学习。
+目标是让杆子尽量久地不倒（每撑住一步 +1 分，满分 500）。<strong>点「开始训练」，看着它从一秒就倒，慢慢学会稳稳站住。</strong>
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 5-B · 压轴</span>从零训练一个会平衡杆子的智能体</div>
+  <div class="w-body">
+    <div class="controls">
+      <button id="ppoRun">▶ 开始训练</button>
+      <button class="ghost" id="ppoReset">↺ 重置（重新随机初始化）</button>
+      <span class="sep">|</span>
+      <label><input type="checkbox" id="ppoClip" checked> 启用裁剪（关掉看它变不稳）</label>
+    </div>
+    <div class="hyper">
+      <label>裁剪 ε = <span class="hv" id="ppoEpsV">0.20</span><input type="range" id="ppoEps" min="3" max="60" value="20"></label>
+      <label>GAE λ = <span class="hv" id="ppoLamV">0.95</span><input type="range" id="ppoLam" min="0" max="100" value="95"></label>
+      <label>更新轮数 K = <span class="hv" id="ppoEpV">8</span><input type="range" id="ppoEp" min="1" max="20" value="8"></label>
+      <label>学习率 = <span class="hv" id="ppoLrV">2.5e-3</span><input type="range" id="ppoLr" min="1" max="60" value="25"></label>
+      <label>熵系数 = <span class="hv" id="ppoEntV">0.00</span><input type="range" id="ppoEnt" min="0" max="30" value="0"></label>
+    </div>
+    <div class="wrow">
+      <div class="wcol">
+        <canvas id="ppoStage" class="stage" width="440" height="200"></canvas>
+        <div class="readout" id="ppoStat" style="margin-top:8px"></div>
+      </div>
+      <div class="wcol">
+        <canvas id="ppoCurve" class="chart" style="height:210px"></canvas>
+        <div class="small" style="text-align:center">学习曲线：平均回合长度（撑住步数）vs 训练迭代</div>
+      </div>
+    </div>
+    <p class="w-tip">实验脚本：① 直接「开始训练」，约十几秒就能看到杆子从立刻倒下进步到能撑几百步；
+    ② <strong>训练到曲线上升后，取消勾选「启用裁剪」</strong>，继续训练几轮——曲线常会开始剧烈震荡甚至跳水（朴素代理目标在多 epoch 复用下崩了，正是第 3、4 章讲的悬崖）；重新勾上裁剪又会企稳。
+    ③ 把 K（更新轮数）调到 18 且关掉裁剪 → 几乎必崩；开着裁剪则稳得多——这最直观地说明裁剪在保护什么。
+    ④ ε 调到 0.6（几乎不裁剪）或 λ 调到 0 / 1 各试试，体会超参的影响。</p>
+    <p class="small">说明：纯 JS 单线程训练，每次迭代采样 1024 步、更新 K 轮；动画与训练并行，偶有轻微卡顿属正常。不同随机初始化下学习速度会有差异，崩了就「重置」再来。</p>
+  </div>
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ⑤<span class="tag">从零的 numpy PPO</span></div>
+  <div class="p-body">
+    <p>网页里的引擎也有一个对应的纯 numpy 版本，算法完全一致，便于你逐行研读和魔改：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/ppo-tutorial/practice</span>
+<span class="cmd">python3 03_ppo.py</span></pre>
+    <p>它会训练 CartPole 并保存学习曲线 <code>03_ppo_curve.png</code>。建议实验（参数都在脚本顶部「实验区」）：</p>
+    <ul>
+      <li><strong>GAE λ</strong>：依次设 <code>0.0</code>（纯 TD）、<code>0.95</code>、<code>1.0</code>（纯 MC），对比收敛速度与曲线抖动——亲手验证 5.1 节的偏差-方差。</li>
+      <li><strong>裁剪开关</strong>：<code>USE_CLIP = False</code>，重复跑几次，看它如何比裁剪版更容易崩——对照互动 5-B 的实验②。</li>
+      <li><strong>更新轮数</strong> <code>N_EPOCHS</code> 与<strong>裁剪</strong> <code>CLIP_EPS</code>：体会「多 epoch 复用数据」与「裁剪幅度」之间的张力。</li>
+      <li><strong>优势标准化</strong> <code>NORM_ADV = False</code>：关掉它，常常直接学不动——印证 5.2 节「实现细节即分水岭」。</li>
+    </ul>
+  </div>
+</div>
+
+<h2><span class="secno">5.4</span>全教程回顾：PPO 是怎样炼成的</h2>
+<p>回到首页那张路线图，现在每一步你都亲手验证过了：</p>
+<table class="neat">
+  <tr><th>章</th><th>解决的痛点</th><th>留下的新问题</th></tr>
+  <tr><td>1 策略梯度</td><td>直接优化策略（适配连续/随机动作）</td><td>方差极大；数据用一次就扔</td></tr>
+  <tr><td>2 基线·优势·AC</td><td>基线/优势/评论员压低方差</td><td>仍是同策略，样本浪费</td></tr>
+  <tr><td>3 重要性采样·信赖域</td><td>复用旧数据；TRPO 限制步长保稳</td><td>带约束优化太重</td></tr>
+  <tr><td>4 裁剪目标</td><td>一行 min-clip 取代约束，简单又稳</td><td>优势怎么估最好？</td></tr>
+  <tr><td>5 GAE·完整 PPO</td><td>GAE 调偏差-方差；组装成可跑算法</td><td>→ 你已经会训练智能体了</td></tr>
+</table>
+<div class="box box-think"><div class="box-title">🤔 再往前可以走向哪里</div>
+<ul>
+<li><strong>连续动作 PPO</strong>：把 softmax 换成高斯策略（第 1 章互动 1-B 的思路），就能控制机械臂、四足机器人。</li>
+<li><strong>异策略家族</strong>：SAC、TD3 等用经验回放进一步提升样本效率（PPO 仍是近似同策略）。</li>
+<li><strong>RLHF</strong>：用 PPO 微调大语言模型时，奖励来自一个「奖励模型」，并常对参考策略加 KL 惩罚——正是本教程第 3、4 章思想的直接应用。</li>
+</ul>
+恭喜你走完从策略梯度到 PPO 的完整链条。下次再看到 PPO 的代码，每一行你都该知道它在补哪一个洞。
+</div>
+
+<div class="pager">
+  <a href="ch4.html"><div class="dir">← 上一章</div>第4章 裁剪目标</a>
+  <a class="next" href="index.html"><div class="dir">完成 ✓</div>返回目录</a>
+</div>
+<footer>素材：GAE 论文（Schulman et al., 2016）· PPO 论文 · The 37 Implementation Details of PPO · OpenAI Spinning Up</footer>
+</main>
+
+<script>
+/* ============ 互动 5-A：GAE 权重与方差 ============ */
+(function () {
+  function lam() { return +$("gaeL").value / 100; }
+  function gam() { return +$("gaeG").value / 100; }
+  function sig() { return +$("gaeS").value / 10; }
+  const T = 60;
+  function draw() {
+    const l = lam(), g = gam(), s = sig(), gl = g * l;
+    // 权重曲线 (γλ)^k
+    const wpts = [];
+    for (let k = 0; k <= 40; k++) wpts.push([k, Math.pow(gl, k)]);
+    xyChart($("gaeW"), [{ pts: wpts, color: "#0c7c8c", label: "(γλ)^l", width: 2.4 }],
+      { xmin: 0, xmax: 40, ymin: 0, ymax: 1.02, xLabel: "未来第 l 步", yLabel: "权重" });
+    // 方差曲线 Var(λ)=σ²(1-(γλ)^{2T})/(1-(γλ)²)
+    const vpts = []; let curV = 0;
+    for (let i = 0; i <= 100; i++) {
+      const ll = i / 100, g2 = g * ll;
+      const v = g2 < 1 - 1e-9 ? s * s * (1 - Math.pow(g2, 2 * T)) / (1 - g2 * g2) : s * s * T;
+      vpts.push([ll, v]);
+      if (Math.abs(ll - l) < 0.006) curV = v;
+    }
+    if (!curV) { const g2 = gl; curV = g2 < 1 - 1e-9 ? s * s * (1 - Math.pow(g2, 2 * T)) / (1 - g2 * g2) : s * s * T; }
+    xyChart($("gaeV"), [{ pts: vpts, color: "#d9802b", label: "Var[Â] vs λ", width: 2.4 }],
+      { xmin: 0, xmax: 1, ymin: 0, xLabel: "λ", yLabel: "方差", markers: [{ x: l, y: curV, color: "#c0392b", label: "当前 λ" }] });
+    const horizon = gl < 1 ? 1 / (1 - gl) : T;
+    $("gaeOut").textContent =
+      `λ = ${l.toFixed(2)}，γ = ${g.toFixed(2)} → 有效视野 ≈ 1/(1−γλ) = ${horizon.toFixed(1)} 步\n` +
+      `当前优势估计方差 ≈ ${curV.toFixed(2)}（λ=0 时为 ${(s * s).toFixed(2)}）\n` +
+      (l < 0.05 ? "→ 接近一步 TD：方差最低，但完全依赖评论员（高偏差）。" :
+       l > 0.97 ? "→ 接近蒙特卡洛：无自举偏差，但方差最大。" :
+       "→ 偏差与方差的折中区；λ≈0.95 是常用甜点。");
+  }
+  $("gaeL").oninput = () => { $("gaeLv").textContent = lam().toFixed(2); draw(); };
+  $("gaeG").oninput = () => { $("gaeGv").textContent = gam().toFixed(2); draw(); };
+  $("gaeS").oninput = () => { $("gaeSv").textContent = sig().toFixed(1); draw(); };
+  draw();
+})();
+
+/* ============ 互动 5-B：浏览器内 PPO 训练 CartPole ============ */
+(function () {
+  const { PPO, CartPole, CP } = PPOLib;
+  let ppo, training = false, trainTimer = null;
+  let demoEnv, demoObs, demoSteps = 0;
+  let lenHist = [], lastStat = null;
+  const stage = $("ppoStage"), sctx = stage.getContext("2d");
+
+  function lrVal() { return +$("ppoLr").value / 1000; } // 0.001..0.060
+  function hyper() {
+    return {
+      clipEps: +$("ppoEps").value / 100, lam: +$("ppoLam").value / 100,
+      epochs: +$("ppoEp").value, lrPi: lrVal(), lrV: lrVal(),
+      entCoef: +$("ppoEnt").value / 1000, useClip: $("ppoClip").checked,
+    };
+  }
+  function applyHyper() { if (!ppo) return; const h = hyper(); ppo.clipEps = h.clipEps; ppo.lam = h.lam; ppo.epochs = h.epochs; ppo.lrPi = h.lrPi; ppo.lrV = h.lrV; ppo.entCoef = h.entCoef; ppo.useClip = h.useClip; }
+  function makeTrainer() {
+    const h = hyper();
+    ppo = new PPO(Object.assign({ seed: (Math.floor(Math.random() * 1e9) || 1), hidden: 32, rollout: 1024, minibatch: 64 }, h));
+    demoEnv = new CartPole(Math.random); demoObs = demoEnv.reset(); demoSteps = 0;
+    lenHist = []; lastStat = null;
+  }
+  function trainStep() {
+    if (!training) return;
+    lastStat = ppo.iterate();
+    lenHist.push(lastStat.meanLen);
+    drawCurve(); drawStat();
+    trainTimer = setTimeout(trainStep, 0); // 让出主线程给动画
+  }
+  function drawCurve() {
+    lineChart($("ppoCurve"), [{ data: lenHist.length ? lenHist : [0], color: "#0c7c8c", width: 2, label: "平均回合长度" }],
+      { ymin: 0, ymax: 510, hline: { y: 500, label: "满分 500", color: "#2e8b57" }, xLabel: "训练迭代", yLabel: "撑住步数" });
+  }
+  function drawStat() {
+    const s = lastStat;
+    $("ppoStat").innerHTML = s ?
+      `迭代 <b>${s.iters}</b>　累计环境步 <b>${s.totalSteps.toLocaleString()}</b>\n` +
+      `近 20 回合平均长度 <b>${s.meanLen.toFixed(0)}</b> / 500\n` +
+      `clip fraction ${(s.clipFrac * 100).toFixed(1)}%　近似 KL ${s.approxKL.toFixed(4)}　` +
+      (ppo.useClip ? '<span style="color:#2e8b57">裁剪开</span>' : '<span style="color:#c0392b">裁剪关</span>')
+      : "尚未开始训练。点「开始训练」。";
+  }
+  // CartPole 渲染
+  function render() {
+    const W = stage.width, H = stage.height;
+    sctx.clearRect(0, 0, W, H);
+    const baseY = H - 40, scale = (W * 0.85) / (2 * CP.xThr);
+    const cx = W / 2 + demoObs[0] * scale;
+    // 轨道
+    sctx.strokeStyle = "#cdd8d6"; sctx.lineWidth = 2;
+    sctx.beginPath(); sctx.moveTo(20, baseY); sctx.lineTo(W - 20, baseY); sctx.stroke();
+    // 边界
+    sctx.strokeStyle = "#eedccd"; sctx.setLineDash([4, 4]);
+    sctx.beginPath(); sctx.moveTo(W / 2 - CP.xThr * scale, 20); sctx.lineTo(W / 2 - CP.xThr * scale, baseY); sctx.moveTo(W / 2 + CP.xThr * scale, 20); sctx.lineTo(W / 2 + CP.xThr * scale, baseY); sctx.stroke(); sctx.setLineDash([]);
+    // 车
+    const cw = 50, ch = 24;
+    sctx.fillStyle = "#0c7c8c"; sctx.fillRect(cx - cw / 2, baseY - ch, cw, ch);
+    // 杆
+    const th = demoObs[2], pl = 80;
+    const tipX = cx + pl * Math.sin(th), tipY = baseY - ch - pl * Math.cos(th);
+    sctx.strokeStyle = "#d9802b"; sctx.lineWidth = 7; sctx.lineCap = "round";
+    sctx.beginPath(); sctx.moveTo(cx, baseY - ch); sctx.lineTo(tipX, tipY); sctx.stroke();
+    sctx.fillStyle = "#233"; sctx.beginPath(); sctx.arc(cx, baseY - ch, 4, 0, 7); sctx.fill();
+    // 文字
+    sctx.fillStyle = "#566"; sctx.font = "13px sans-serif"; sctx.textAlign = "left";
+    sctx.fillText("当前策略演示　本回合已撑 " + demoSteps + " 步", 12, 18);
+  }
+  function animate() {
+    if (ppo) {
+      for (let k = 0; k < 2; k++) { // 每帧走 2 步
+        const p = ppo.actDist(demoObs);
+        const a = Math.random() < p[0] ? 0 : 1;
+        const r = demoEnv.step(a); demoObs = r.obs; demoSteps++;
+        if (r.done) { demoObs = demoEnv.reset(); demoSteps = 0; break; }
+      }
+      render();
+    }
+    requestAnimationFrame(animate);
+  }
+  // 绑定
+  $("ppoRun").onclick = () => {
+    training = !training;
+    $("ppoRun").textContent = training ? "⏸ 暂停训练" : "▶ 开始训练";
+    if (training) trainStep(); else if (trainTimer) clearTimeout(trainTimer);
+  };
+  $("ppoReset").onclick = () => {
+    training = false; if (trainTimer) clearTimeout(trainTimer);
+    $("ppoRun").textContent = "▶ 开始训练";
+    makeTrainer(); drawCurve(); drawStat();
+  };
+  $("ppoClip").onchange = applyHyper;
+  const bind = (id, vid, fn) => { $(id).oninput = () => { $(vid).textContent = fn(); applyHyper(); }; };
+  bind("ppoEps", "ppoEpsV", () => (+$("ppoEps").value / 100).toFixed(2));
+  bind("ppoLam", "ppoLamV", () => (+$("ppoLam").value / 100).toFixed(2));
+  bind("ppoEp", "ppoEpV", () => +$("ppoEp").value);
+  bind("ppoLr", "ppoLrV", () => lrVal().toExponential(1));
+  bind("ppoEnt", "ppoEntV", () => (+$("ppoEnt").value / 1000).toFixed(2));
+  makeTrainer(); drawCurve(); drawStat(); render(); animate();
+})();
+</script>
+</body>
+</html>

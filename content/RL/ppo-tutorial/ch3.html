@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第3章 同策略之困：重要性采样与信赖域</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/lib.js"></script>
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand" href="index.html">PPO 互动教程</a>
+  <a href="ch1.html">1 策略梯度</a>
+  <a href="ch2.html">2 基线·优势·AC</a>
+  <a class="here" href="ch3.html">3 重要性采样·信赖域</a>
+  <a href="ch4.html">4 裁剪目标</a>
+  <a href="ch5.html">5 GAE·完整 PPO</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">第 3 章</span>同策略之困：重要性采样与信赖域</h1>
+<p class="lead">
+策略梯度是<em class="term">同策略（on-policy）</em>的：参数一更新，旧策略采的数据就「过期」了，只能重采。
+样本这么贵，我们想<strong>一批数据反复用几次</strong>。这一念之差，引出重要性采样、它的方差陷阱，以及 TRPO 的信赖域——PPO 的直接前身。
+</p>
+
+<h2><span class="secno">3.1</span>同策略的浪费</h2>
+<p>
+策略梯度 ∇J = 𝔼<sub>τ~π<sub>θ</sub></sub>[…] 里的期望是<strong>对当前策略 π<sub>θ</sub> 采样</strong>求的。
+一旦做完一次梯度上升，θ 变了，π<sub>θ</sub> 也变了，之前那批轨迹是用旧策略采的，<strong>不再服从新分布</strong>，理论上就不能再用。
+于是流程是：采一大批 → 更新一次 → 全部扔掉 → 再采。Easy RL 里说得很直白：<strong>策略梯度大部分时间都耗在采样上</strong>。
+</p>
+<p>
+能不能用<strong>旧策略 π<sub>old</sub></strong> 采一次数据，让<strong>新策略 π<sub>θ</sub></strong> 在这批数据上更新很多次？
+这要求我们「用一个分布的样本，去估计另一个分布下的期望」。这正是<em class="term">重要性采样</em>。
+</p>
+
+<h2><span class="secno">3.2</span>重要性采样：用 q 的样本估 p 的期望</h2>
+<p>恒等式只是把概率密度的比值乘进去：</p>
+<div class="eq">𝔼<sub>x~p</sub>[f(x)] = 𝔼<sub>x~q</sub>[ (p(x)/q(x))·f(x) ]<span class="tag">(3.1)</span></div>
+<p>
+那个比值 <span class="math">p(x)/q(x)</span> 叫<em class="term">重要性权重</em>，用来「修正」两个分布的差异。理论上 q 可以是任何分布（只要 p&gt;0 处 q&gt;0）。
+但<strong>理论归理论</strong>——它有个隐藏的大坑：期望虽然不变，<strong>方差却可能爆炸</strong>。当 p 和 q 离得远，少数落在「p 大、q 小」区域的样本会被乘上巨大的权重，
+采样次数不够时，估计值会疯狂跳动甚至系统性偏错。先把这个坑看清楚。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 3-A</span>重要性采样的方差陷阱</div>
+  <div class="w-body">
+    <p style="margin-top:0">目标：用<strong>提议分布 q</strong>（橙）的样本估计<strong>目标分布 p</strong>（青）下的期望 𝔼<sub>p</sub>[f]，f(x)=x（真值见红线）。
+    上图是两个分布与权重曲线 w(x)=p/q；下图是<strong>重复 800 次</strong>、每次 N 个样本得到的估计值分布。拖动 q 的偏移，看两分布拉开后估计如何失控。</p>
+    <div class="controls">
+      <label>q 相对 p 的偏移 = <b id="isGapV">0.0</b><input type="range" id="isGap" min="0" max="40" value="0" style="width:200px"></label>
+      <label>每次样本数 N = <b id="isNV">50</b><input type="range" id="isN" min="10" max="500" value="50"></label>
+      <button id="isDraw">🎲 重抽</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="isDist" class="chart" style="height:170px"></canvas>
+        <div class="small" style="text-align:center">分布 p / q 与权重 w(x)=p/q</div></div>
+      <div class="wcol"><canvas id="isHist" class="chart" style="height:170px"></canvas>
+        <div class="small" style="text-align:center">800 次估计值的分布（应聚在红色真值附近）</div></div>
+    </div>
+    <div class="readout" id="isOut"></div>
+    <p class="w-tip">观察：① 偏移=0（p=q）时估计又准又稳；② 偏移加大，下图直方图<strong>越摊越宽</strong>，有效样本数 ESS 暴跌——
+    这意味着名义上 N 个样本，实际只相当于寥寥几个有用；③ 偏移很大且 N 小时，估计经常<strong>系统性偏离真值</strong>（极端权重的样本难得被采到）。
+    <strong>结论：重要性采样只有在两个分布「足够接近」时才靠谱。</strong></p>
+  </div>
+</div>
+
+<h2><span class="secno">3.3</span>把策略梯度改成「可复用数据」的形式</h2>
+<p>用重要性采样把策略梯度的目标改写成「用旧策略采样、优化新策略」的<em class="term">代理目标（surrogate objective）</em>：</p>
+<div class="eq">L<sup>IS</sup>(θ) = 𝔼<sub>(s,a)~π<sub>old</sub></sub>[ (π<sub>θ</sub>(a|s) / π<sub>old</sub>(a|s)) · A(s,a) ]<span class="tag">(3.2)</span></div>
+<p>
+记<strong>概率比</strong> <span class="math">r(θ) = π<sub>θ</sub>(a|s)/π<sub>old</sub>(a|s)</span>。在 θ=θ<sub>old</sub> 处 r=1，且可以验证 ∇<sub>θ</sub>L<sup>IS</sup> 在该点正好等于原始策略梯度。
+好处是：数据从 π<sub>old</sub> 采一次，就能让 π<sub>θ</sub> 反复做几步梯度上升——<strong>样本效率大涨</strong>。
+</p>
+<div class="box box-warn"><div class="box-title">⚠ 但 3-A 的坑还在</div>
+代理目标 L<sup>IS</sup> 只在 π<sub>θ</sub> 与 π<sub>old</sub> <strong>足够接近</strong>时才可信。一旦 π<sub>θ</sub> 在这批旧数据上「优化过头」、跑得离 π<sub>old</sub> 太远，
+重要性权重方差爆炸、代理目标与<strong>真实</strong>表现严重脱节——你以为在爬坡，其实早已冲下悬崖。
+</div>
+
+<h2><span class="secno">3.4</span>悬崖与信赖域</h2>
+<p>
+为什么「优化过头」会掉下悬崖？因为代理目标 L(θ) 只是真实目标 J(θ) 在 θ<sub>old</sub> 附近的<strong>一阶近似</strong>：
+方向（梯度）在出发点是对的，但你沿这个方向走得越远，近似误差越大（背后是策略变了、智能体访问的状态分布也跟着变，而代理目标却仍按旧分布算账）。
+TRPO 的理论给出：这个误差可以被<strong>新旧策略的 KL 散度</strong>约束住。于是自然的对策是——<strong>只在一个「可信的邻域」内最大化代理目标</strong>，这就是<em class="term">信赖域（trust region）</em>。
+</p>
+<div class="eq">TRPO：&nbsp; max<sub>θ</sub> L(θ)&nbsp; s.t.&nbsp; 𝔼<sub>s</sub>[ KL( π<sub>old</sub>(·|s) ‖ π<sub>θ</sub>(·|s) ) ] ≤ δ<span class="tag">(3.3)</span></div>
+<p>下面这个图把「代理目标、真实目标、信赖域、悬崖」放在一起。它采用 TRPO 的经典视角：真实目标局部是个有顶的山包，代理目标是出发点处的切线（只会一路向上「画饼」），KL 随步长二次增长。</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 3-B</span>代理目标的「画饼」与信赖域的刹车 <span class="small" style="font-weight:400">（TRPO 一阶视角，示意）</span></div>
+  <div class="w-body">
+    <p style="margin-top:0">横轴是「从 θ<sub>old</sub>（=0）迈出的步长」。<span style="color:#0c7c8c"><b>青线 = 真实目标 J(θ)</b></span>（有个真实的峰，过了就下坡）；
+    <span style="color:#d9802b"><b>橙虚线 = 代理目标 L(θ)</b></span>（一阶近似，只会一路上扬地「画饼」）。阴影是信赖域 |步长| ≤ √(2δ)。</p>
+    <div class="controls">
+      <label>信赖域大小 δ = <b id="trDeltaV">0.05</b><input type="range" id="trDelta" min="1" max="120" value="20" style="width:240px"></label>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="trChart" class="chart" style="height:250px"></canvas></div>
+      <div class="wcol"><div class="readout" id="trOut"></div>
+      <p class="w-tip" style="margin-top:8px">拖动 δ：① δ 很小 → 在信赖域边界取到的 θ 稳稳落在峰的左侧，真实表现确实提升（安全的小步）；
+      ② δ 调大 → 边界越过真实峰值，按代理目标「该继续上」，但<strong>真实目标已经开始下跌</strong>——这就是掉下悬崖；
+      ③ 代理目标永远在画饼（橙线只升不降），<strong>正是它骗你迈出致命大步</strong>。信赖域的唯一职责就是踩刹车。</p></div>
+    </div>
+  </div>
+</div>
+
+<p>
+两点要厘清：<strong>(1) KL 度量的是「行为距离」不是「参数距离」</strong>——我们在乎的是两个策略在相同状态下输出的动作分布有多不同，而非网络权重数值差多少（参数微动可能让动作大变，反之亦然）。
+<strong>(2) PPO 其实仍是同策略算法</strong>：这里的「旧策略」只是上一轮迭代的自己，数据复用也只持续几个 epoch，π<sub>old</sub> 与 π<sub>θ</sub> 始终被刻意按在很近的地方。
+</p>
+<div class="box box-idea"><div class="box-title">💡 TRPO 很对，但很重</div>
+TRPO 把 KL 当成<strong>硬约束</strong>，要解一个带约束的优化（共轭梯度、线搜索、二阶信息……），实现复杂、计算昂贵。
+有没有办法<strong>不解约束优化、只用普通的 SGD/Adam</strong>，就达到「步子别迈太大」的效果？
+PPO 给出的答案简单得令人发笑——下一章见。
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ③<span class="tag">动手体会概率比 r(θ)</span></div>
+  <div class="p-body">
+    <p>本章没有独立脚本，但概率比 r(θ) 是 PPO 代码的心脏。打开第 4–5 章要用的 PPO 实现，定位 <code>ratio = exp(logp_new - logp_old)</code> 这一行：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/ppo-tutorial/practice</span>
+<span class="cm"># 用编辑器打开 03_ppo.py，搜索 "ratio"</span>
+<span class="cmd">grep -n "ratio\|logp\|approx_kl" 03_ppo.py</span></pre>
+    <p><strong>想一想</strong>：① 为什么用 <code>exp(logp_new - logp_old)</code> 而不是直接 <code>p_new / p_old</code>？（数值稳定：log 域相减再取指数，避免极小概率相除溢出。）
+    ② 脚本里会打印 <code>approx_kl</code>（近似 KL）——它就是 3.4 节「行为距离」的实时度量。第 5 章训练时盯着它：KL 失控往往意味着步子迈大了。</p>
+  </div>
+</div>
+
+<h2><span class="secno">3.5</span>本章小结</h2>
+<ul>
+  <li>策略梯度是<strong>同策略</strong>的，数据用一次就废，采样昂贵。</li>
+  <li><strong>重要性采样</strong>让我们用旧策略的数据优化新策略（代理目标 L<sup>IS</sup>，概率比 r(θ)），<strong>但当两策略相距太远时方差爆炸、目标失真</strong>。</li>
+  <li>代理目标只是真实目标的<strong>局部一阶近似</strong>；走太远会「掉下悬崖」。误差由 KL 散度约束。</li>
+  <li><strong>TRPO</strong>：在「KL ≤ δ」的<strong>信赖域</strong>内最大化代理目标。正确但实现笨重。</li>
+</ul>
+<div class="box box-think"><div class="box-title">🤔 承上启下</div>
+我们要的是 TRPO 的「别迈太大」效果，又想要 SGD 的简单。第 4 章的 PPO 用一个<strong>裁剪（clip）</strong>操作，
+把「限制步长」直接焊进目标函数本身——不再需要任何约束优化。它就是本教程的高潮。
+</div>
+
+<div class="pager">
+  <a href="ch2.html"><div class="dir">← 上一章</div>第2章 基线·优势·AC</a>
+  <a class="next" href="ch4.html"><div class="dir">下一章 →</div>第4章 PPO 裁剪式目标函数</a>
+</div>
+<footer>素材：TRPO 论文 · Easy RL 第5章（重要性采样/同策略异策略）· OpenAI Spinning Up (TRPO)</footer>
+</main>
+
+<script>
+/* ============ 互动 3-A：重要性采样方差 ============ */
+(function () {
+  const npdf = (x, m) => Math.exp(-0.5 * (x - m) * (x - m)) / Math.sqrt(2 * Math.PI);
+  function gap() { return +$("isGap").value / 10; }
+  function N() { return +$("isN").value; }
+  function oneEstimate(mu) {
+    let sw = 0, swf = 0, sw2 = 0;
+    for (let i = 0; i < N(); i++) {
+      const x = mu + gauss();           // x ~ q = N(mu,1)
+      const w = npdf(x, 0) / npdf(x, mu); // p=N(0,1)
+      sw += w; swf += w * x; sw2 += w * w;
+    }
+    return { est: swf / N(), ess: (sw * sw) / sw2 }; // 自归一化前的估计 + ESS
+  }
+  function draw() {
+    const mu = gap();
+    // 分布图
+    const ps = [], qs = [], ws = [];
+    for (let i = 0; i <= 120; i++) { const x = -4 + i / 120 * 9; ps.push([x, npdf(x, 0)]); qs.push([x, npdf(x, mu)]); ws.push([x, Math.min(6, npdf(x, 0) / Math.max(1e-9, npdf(x, mu))) ]); }
+    xyChart($("isDist"), [
+      { pts: ps, color: "#0c7c8c", label: "p=N(0,1) 目标" },
+      { pts: qs, color: "#d9802b", label: "q 提议", dash: [5, 3] },
+      { pts: ws, color: "#b06bce", label: "权重 w=p/q", width: 1.3 },
+    ], { xmin: -4, xmax: 5, ymin: 0, ymax: 1.2, xLabel: "x" });
+    // 重复估计
+    const ests = [], esss = [];
+    for (let k = 0; k < 800; k++) { const e = oneEstimate(mu); ests.push(e.est); esss.push(e.ess); }
+    histChart($("isHist"), ests, { color: "rgba(12,124,140,0.6)", meanLabel: "均值 " });
+    $("isOut").textContent =
+      `真值 𝔼ₚ[x] = 0.000    偏移 = ${mu.toFixed(1)}，N = ${N()}\n` +
+      `800 次估计：均值 ${mean(ests).toFixed(3)}，标准差 ${std(ests).toFixed(3)}（越大越不可靠）\n` +
+      `有效样本数 ESS ≈ ${mean(esss).toFixed(1)} / ${N()}（${(mean(esss) / N() * 100).toFixed(0)}% 的样本真正有用）`;
+  }
+  $("isGap").oninput = () => { $("isGapV").textContent = gap().toFixed(1); };
+  $("isN").oninput = () => { $("isNV").textContent = N(); };
+  $("isDraw").onclick = draw;
+  draw();
+})();
+
+/* ============ 互动 3-B：代理目标 vs 真实目标 + 信赖域 ============ */
+(function () {
+  // 示意：真实目标 J(θ)=g·θ - 0.5k·θ²（局部有顶的山包）；代理 L(θ)=g·θ（一阶切线）；KL≈0.5θ²，信赖域 |θ|≤√(2δ)
+  const g = 1.0, k = 0.9;
+  function delta() { return +$("trDelta").value / 400; } // 0.0025..0.3
+  function draw() {
+    const d = delta(), edge = Math.sqrt(2 * d);
+    const Jpeak = g / k;                       // 真实峰位置
+    const chosen = Math.min(edge, 6);          // 在信赖域边界取代理最大（代理单调增→取最大步）
+    const Jpts = [], Lpts = [];
+    for (let i = 0; i <= 120; i++) { const t = i / 120 * 3.2; Jpts.push([t, g * t - 0.5 * k * t * t]); Lpts.push([t, g * t]); }
+    xyChart($("trChart"), [
+      { pts: Jpts, color: "#0c7c8c", label: "真实目标 J(θ)", width: 2.4 },
+      { pts: Lpts, color: "#d9802b", label: "代理目标 L(θ)（画饼）", dash: [6, 4] },
+    ], {
+      xmin: 0, xmax: 3.2, ymin: -1, ymax: 3.4, xLabel: "迈出的步长 θ", yLabel: "目标值",
+      bands: [{ x0: 0, x1: edge, color: "rgba(12,124,140,0.08)" }],
+      vlines: [
+        { x: edge, label: "信赖域边界 √(2δ)", color: "#2e8b57" },
+        { x: Jpeak, label: "真实峰", color: "#888", dash: [2, 2] },
+      ],
+      markers: [
+        { x: chosen, y: g * chosen - 0.5 * k * chosen * chosen, color: "#c0392b", label: "实际落点的真实表现" },
+      ],
+    });
+    const Jc = g * chosen - 0.5 * k * chosen * chosen;
+    const overshoot = chosen > Jpeak;
+    $("trOut").textContent =
+      `信赖域 δ = ${d.toFixed(3)} → 允许步长 ≤ ${edge.toFixed(2)}\n` +
+      `真实最优步长（峰）= ${Jpeak.toFixed(2)}\n` +
+      `实际落点 θ = ${chosen.toFixed(2)}，真实表现 J = ${Jc.toFixed(3)}\n` +
+      (overshoot
+        ? `⚠ 已越过真实峰！代理目标还在喊「继续上」，真实表现却在下跌——掉下悬崖。`
+        : `✓ 步子落在峰左侧，真实表现确实提升。这是安全的一步。`);
+  }
+  $("trDelta").oninput = () => { $("trDeltaV").textContent = delta().toFixed(3); draw(); };
+  draw();
+})();
+</script>
+</body>
+</html>

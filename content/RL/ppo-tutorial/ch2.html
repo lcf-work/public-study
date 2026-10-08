@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第2章 与方差搏斗：基线、优势与 Actor-Critic</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="js/lib.js"></script>
+</head>
+<body>
+<nav class="topnav"><div class="inner">
+  <a class="brand" href="index.html">PPO 互动教程</a>
+  <a href="ch1.html">1 策略梯度</a>
+  <a class="here" href="ch2.html">2 基线·优势·AC</a>
+  <a href="ch3.html">3 重要性采样·信赖域</a>
+  <a href="ch4.html">4 裁剪目标</a>
+  <a href="ch5.html">5 GAE·完整 PPO</a>
+</div></nav>
+
+<main>
+<h1><span class="kicker">第 2 章</span>与方差搏斗：基线、优势与 Actor-Critic</h1>
+<p class="lead">
+REINFORCE 能用，但有个致命弱点——<strong>梯度估计的方差极大</strong>，训练像喝醉了一样东倒西歪。
+本章用三件套把方差摁下去：<strong>基线 → 优势函数 → 评论员（critic）</strong>。这三样都会原封不动地活在 PPO 里。
+</p>
+
+<h2><span class="secno">2.1</span>问题：高方差从哪来</h2>
+<p>
+回忆 REINFORCE 的更新权重是回报 G<sub>t</sub>。回报是<strong>整条轨迹随机性的累积</strong>：动作是采样的、环境转移是随机的、奖励可能有噪声。
+一条轨迹运气好得 100 分、运气差得 −50 分，同一个动作可能被忽上忽下地拉扯。用这种「忽大忽小的权重」去推梯度，方向自然抖得厉害。
+</p>
+<p>
+更要命的是第 1 章 互动 1-A 暴露的现象：<strong>当奖励总是正的</strong>，每个被采样到的动作都会被「点赞」，只是程度不同。
+没被采样到的好动作反而因为别人涨、自己被归一化挤下去。我们真正想要的信号是「<strong>这个动作比平均水平好还是差</strong>」，而不是「它的绝对分数是多少」。
+</p>
+
+<h2><span class="secno">2.2</span>基线：免费的午餐</h2>
+<p>
+办法出奇简单：从回报里减掉一个<em class="term">基线</em> b(s<sub>t</sub>)：
+</p>
+<div class="eq">∇<sub>θ</sub> J ≈ 𝔼[ Σ<sub>t</sub> ∇<sub>θ</sub> log π<sub>θ</sub>(a<sub>t</sub>|s<sub>t</sub>) · ( G<sub>t</sub> − b(s<sub>t</sub>) ) ]<span class="tag">(2.1)</span></div>
+<p>
+神奇之处在于：<strong>无论 b(s) 取什么（只要不依赖动作 a），梯度的期望都不变</strong>——基线不引入任何偏差。
+一行就能看明白为什么：
+</p>
+<div class="box box-math"><div class="box-title">∂ 基线为何无偏</div>
+<div class="eq">𝔼<sub>a~π</sub>[ ∇<sub>θ</sub>log π<sub>θ</sub>(a|s) · b(s) ] = b(s) · Σ<sub>a</sub> π<sub>θ</sub>(a|s) ∇<sub>θ</sub>log π<sub>θ</sub>(a|s) = b(s) · ∇<sub>θ</sub> Σ<sub>a</sub> π<sub>θ</sub>(a|s) = b(s) · ∇<sub>θ</sub> 1 = 0</div>
+减掉的那一项，期望恰好是 0。所以期望（=真实梯度）纹丝不动，<strong>但方差可以大幅下降</strong>——这是真·免费的午餐。
+</div>
+<p>
+最自然、近乎最优的基线就是<strong>状态价值 V(s)</strong>：「从这个状态出发，按当前策略平均能拿多少分」。
+用它当基线，权重 G<sub>t</sub> − V(s<sub>t</sub>) 就变成了「实际拿到的，比预期的好多少」——有正有负，干净利落。来亲手量一量方差到底降了多少。
+</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 2-A</span>方差显微镜：基线把梯度估计「收窄」了多少</div>
+  <div class="w-body">
+    <p style="margin-top:0">固定一个策略（不训练），反复用<strong>单样本</strong>估计某个 logit 的梯度分量 ĝ。下面画出 2000 次估计的分布：
+    左（红）是不用基线 b=0；右（青）是用基线 b=平均奖励。竖线是各自的样本均值，也叠加了<strong>解析真值</strong>。</p>
+    <div class="controls">
+      <label>奖励噪声 = <b id="vaNzV">0.5</b><input type="range" id="vaNz" min="0" max="30" value="5"></label>
+      <span class="sep">|</span>
+      <label><input type="checkbox" id="vaPos" checked> 奖励整体偏正（像打乒乓球，分数 0~10）</label>
+      <span class="sep">|</span>
+      <button id="vaDraw">🎲 重新抽 2000 次</button>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><div class="small" style="text-align:center">b = 0（无基线）</div><canvas id="vaH0" class="chart" style="height:150px"></canvas></div>
+      <div class="wcol"><div class="small" style="text-align:center">b = 平均奖励（有基线）</div><canvas id="vaH1" class="chart" style="height:150px"></canvas></div>
+    </div>
+    <div class="readout" id="vaOut"></div>
+    <p class="w-tip">观察：① 两个分布的<strong>均值几乎重合</strong>，且都落在解析真值上——证明基线<strong>不引入偏差</strong>；
+    ② 但青色分布<strong>窄得多</strong>（标准差小很多）——这就是方差下降；③ 勾掉「整体偏正」让奖励有正有负，无基线的劣势会缩小——
+    可见基线在「奖励同号」时最救命，正对应第 1 章那个毛病。</p>
+  </div>
+</div>
+
+<h2><span class="secno">2.3</span>优势函数：比平均好多少</h2>
+<p>
+把「用 V(s) 当基线」这件事提炼成一个核心概念——<em class="term">优势函数（advantage）</em>：
+</p>
+<div class="eq">A<sup>π</sup>(s, a) = Q<sup>π</sup>(s, a) − V<sup>π</sup>(s)<span class="tag">(2.2)</span></div>
+<p>
+其中 Q(s,a) 是「在 s 做 a 之后的期望回报」，V(s) 是「在 s 按策略行动的期望回报（对动作取平均）」。
+所以 <strong>A(s,a) 回答的正是：在状态 s，动作 a 比「照当前策略随便走」好多少</strong>。A&gt;0 的动作值得加大概率，A&lt;0 的该减小。
+策略梯度于是写成最干净的形式：
+</p>
+<div class="eq">∇<sub>θ</sub> J = 𝔼[ Σ<sub>t</sub> ∇<sub>θ</sub> log π<sub>θ</sub>(a<sub>t</sub>|s<sub>t</sub>) · A<sup>π</sup>(s<sub>t</sub>, a<sub>t</sub>) ]<span class="tag">(2.3)</span></div>
+<p>从第 3 章起，PPO 的目标函数里出现的权重，<strong>全都是这个 A</strong>。务必把它的直觉焊死在脑子里。</p>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 2-B</span>优势 = 高于水平线的部分</div>
+  <div class="w-body">
+    <p style="margin-top:0">某状态有 4 个动作，柱子是它们的 Q 值。青色水平线是 <span class="math">V = Σ<sub>a</sub> π(a)·Q(a)</span>——当前策略的「平均水平」。
+    柱子高出水平线的部分（绿）是正优势，低于的部分（红）是负优势。拖动「贪婪度」改变策略 π，看水平线 V 怎么移动。</p>
+    <div class="controls">
+      <label>策略贪婪度 β = <b id="advBV">1.0</b><input type="range" id="advB" min="0" max="40" value="10"></label>
+      <span class="sep">|</span>
+      <span class="small">（β=0 完全均匀；β 越大越偏向高 Q 动作）</span>
+    </div>
+    <div class="wrow">
+      <div class="wcol"><canvas id="advStage" class="stage" width="380" height="240"></canvas></div>
+      <div class="wcol"><div class="readout" id="advOut"></div>
+        <p class="w-tip" style="margin-top:8px">观察：① 策略越贪婪（β 大），它越爱选高 Q 动作，平均水平线 V 越往上抬 → 即便是次高的动作，优势也可能变负；
+        ② 优势是<strong>相对当前策略</strong>的概念，会随策略变化——这正是为什么 PPO 每轮要<strong>重新估计</strong>优势；
+        ③ 用优势当权重，梯度信号天然「有正有负、以 0 为中心」，方差小、方向准。</p></div>
+    </div>
+  </div>
+</div>
+
+<h2><span class="secno">2.4</span>评论员登场：Actor-Critic</h2>
+<p>
+还有一个问题：式 (2.3) 里的 A(s,a) 我们并不知道，得估出来。最直接的办法是用蒙特卡洛回报：
+<span class="math">A ≈ G<sub>t</sub> − V(s<sub>t</sub>)</span>。但 G<sub>t</sub> 本身就是高方差的源头（要等回合结束、积累一路随机性）。
+</p>
+<p>
+<em class="term">Actor-Critic</em> 的主意是：<strong>再训练一个网络来估计 V(s)，叫评论员（critic）</strong>，
+然后用<strong>自举（bootstrap）</strong>的方式估优势，比如一步时序差分：
+</p>
+<div class="eq">A(s<sub>t</sub>, a<sub>t</sub>) ≈ δ<sub>t</sub> = r<sub>t</sub> + γV(s<sub>t+1</sub>) − V(s<sub>t</sub>)<span class="tag">(2.4)</span></div>
+<p>
+于是有了两个角色：<strong>演员（actor）</strong> π<sub>θ</sub> 负责动作，<strong>评论员</strong> V<sub>w</sub> 负责打分。
+演员朝评论员说好的方向更新，评论员则不断学着把 V 估准。用 δ<sub>t</sub> 替代 G<sub>t</sub>−V，<strong>方差大降</strong>（不必跑完整回合），
+代价是<strong>引入了偏差</strong>（评论员估不准时会带偏）。这就是著名的 <em class="term">优势演员-评论员（A2C）</em>。
+</p>
+<div class="box box-idea"><div class="box-title">💡 一条贯穿全书的主线：偏差 ↔ 方差</div>
+用<strong>整条回报</strong> G<sub>t</sub> 估优势：无偏，但方差大（蒙特卡洛那一端）。<br>
+用<strong>一步自举</strong> r+γV(s′)−V(s) 估优势：方差小，但有偏（时序差分那一端）。<br>
+能不能在两端之间<strong>平滑地调一个旋钮</strong>？能——那就是第 5 章的 <strong>GAE</strong>，PPO 的标配。现在先记住这根轴。
+</div>
+
+<div class="widget">
+  <div class="w-head"><span class="badge">互动 2-C</span>方差下降 = 学得更快：有无基线的学习曲线</div>
+  <div class="w-body">
+    <p style="margin-top:0">回到第 1 章那个「奖励都为正」的 4 臂问题，用<strong>完全相同</strong>的随机采样，同时训练两个策略：
+    一个不用基线，一个用「running 平均奖励」当基线。看谁更快把最优动作的概率推上去。</p>
+    <div class="controls">
+      <label>学习率 α = <b id="cvLrV">0.10</b><input type="range" id="cvLr" min="1" max="40" value="10"></label>
+      <button id="cvRun">▶ 训练 1500 步</button>
+      <button class="ghost" id="cvReset">重置</button>
+    </div>
+    <canvas id="cvChart" class="chart" style="height:220px"></canvas>
+    <div class="readout" id="cvOut"></div>
+    <p class="w-tip">观察：青线（有基线）通常<strong>更快、更稳</strong>地逼近 1，红线（无基线）爬得慢且抖。
+    两者用的是同一批样本，差别<strong>纯粹来自方差</strong>——基线把噪声滤掉了，方向信号更纯净。多点几次「重置→训练」，看不同随机种子下的稳定差异。</p>
+  </div>
+</div>
+
+<div class="practice">
+  <div class="p-head">⌨ 编程实践 ②<span class="tag">基线 / 优势 Actor-Critic</span></div>
+  <div class="p-body">
+    <p>先在 REINFORCE 脚本里打开基线，对比 第 1 章的无基线版本：</p>
+<pre class="term"><span class="cmd">cd ~/studyspace/RL/ppo-tutorial/practice</span>
+<span class="cm"># 编辑 01_reinforce.py，把顶部 USE_BASELINE 改成 True，再跑</span>
+<span class="cmd">python3 01_reinforce.py</span></pre>
+    <p>然后跑完整的优势 Actor-Critic（演员 + 评论员两个网络）：</p>
+<pre class="term"><span class="cmd">python3 02_actor_critic.py</span></pre>
+    <p><strong>观察与实验</strong>：</p>
+    <ul>
+      <li>对比 <code>01</code>（无基线）与 <code>01</code>（有基线）两条学习曲线 PNG：有基线版本<strong>抖动明显更小</strong>——这就是 2.2 节方差下降在训练上的体现。</li>
+      <li><code>02_actor_critic.py</code> 用<strong>自举的 GAE 优势</strong>，比 REINFORCE 更稳、更省样本，能稳定学到几百分；
+      但你会发现<strong>纯在线 AC 难以又快又稳地冲上满分</strong>——这正是后面 PPO（裁剪）要解决的。把 <code>GAE_LAMBDA</code> 设成 <code>0</code>（一步 TD，式 2.4）、<code>0.95</code>、<code>1.0</code>（蒙特卡洛）各跑一次，
+      观察收敛速度与抖动的变化——这就是在<strong>偏差-方差轴</strong>上手动滑动，为第 5 章的 GAE 预热。</li>
+      <li>把评论员学习率 <code>LR_V</code> 调到很小，让评论员「估不准」，看演员如何被带偏——体会自举的偏差代价。</li>
+    </ul>
+  </div>
+</div>
+
+<h2><span class="secno">2.5</span>本章小结</h2>
+<ul>
+  <li>REINFORCE 的核心病是<strong>高方差</strong>，根源是用整条轨迹的随机回报当权重。</li>
+  <li><strong>基线</strong> b(s)：减去它不改变梯度期望（无偏），却能大幅<strong>降方差</strong>；最佳基线是 V(s)。</li>
+  <li><strong>优势</strong> A(s,a)=Q−V：「比当前策略的平均好多少」，是 PPO 目标里唯一的权重信号；它<strong>随策略变化</strong>，需反复估计。</li>
+  <li><strong>Actor-Critic</strong>：演员学策略、评论员学 V，用自举的 δ 估优势——以一点偏差换大量方差。偏差↔方差是贯穿到 GAE 的主轴。</li>
+</ul>
+<div class="box box-think"><div class="box-title">🤔 承上启下</div>
+方差治得差不多了，但还有一个大浪费没碰：策略梯度是<strong>同策略</strong>的——每批数据更新一次就得作废重采。
+样本那么贵，能不能<strong>一批数据反复榨取多次</strong>？这一问，直接把我们推向第 3 章的<strong>重要性采样</strong>，以及它带来的新麻烦。
+</div>
+
+<div class="pager">
+  <a href="ch1.html"><div class="dir">← 上一章</div>第1章 策略梯度</a>
+  <a class="next" href="ch3.html"><div class="dir">下一章 →</div>第3章 重要性采样与信赖域</a>
+</div>
+<footer>素材：Sutton &amp; Barto 第13章 · Easy RL 第4、9章 · GAE 论文（偏差-方差）</footer>
+</main>
+
+<script>
+/* ============ 互动 2-A：梯度方差直方图 ============ */
+(function () {
+  // 固定策略下，估计某个 logit 分量的梯度 ĝ_j = (R - b)(1[j=a] - π_j)
+  const J = 0; // 关注动作 A 的分量
+  function rewards() { return $("vaPos").checked ? [6.5, 5.2, 5.8, 4.6] : [1.5, -0.4, 0.6, -1.0]; }
+  function noise() { return +$("vaNz").value / 10; }
+  const theta = [0.4, 0.0, 0.2, -0.1];        // 固定策略
+  function draw() {
+    const R = rewards(), p = softmax(theta), nz = noise(), N = 2000;
+    const bMean = p.reduce((s, pi, i) => s + pi * R[i], 0); // 期望奖励作基线
+    const g0 = [], g1 = [];
+    for (let n = 0; n < N; n++) {
+      const a = sampleCat(p), r = R[a] + gauss() * nz;
+      const ind = (J === a ? 1 : 0) - p[J];
+      g0.push(r * ind);
+      g1.push((r - bMean) * ind);
+    }
+    // 解析真值（与 b 无关）
+    let gTrue = 0; for (let a = 0; a < 4; a++) gTrue += p[a] * R[a] * ((J === a ? 1 : 0) - p[J]);
+    const lo = Math.min(...g0, ...g1), hi = Math.max(...g0, ...g1);
+    histChart($("vaH0"), g0, { lo, hi, color: "rgba(192,57,43,0.6)", meanLabel: "样本均值 " });
+    histChart($("vaH1"), g1, { lo, hi, color: "rgba(12,124,140,0.65)", meanLabel: "样本均值 " });
+    $("vaOut").textContent =
+      `解析真值（真实梯度分量）= ${gTrue.toFixed(4)}\n` +
+      `无基线：均值 ${mean(g0).toFixed(4)}，标准差 ${std(g0).toFixed(4)}\n` +
+      `有基线：均值 ${mean(g1).toFixed(4)}，标准差 ${std(g1).toFixed(4)}\n` +
+      `→ 两者均值都≈真值（无偏）；标准差缩小为 ${(std(g1) / std(g0) * 100).toFixed(0)}%（方差下降 ${(100 - variance(g1) / variance(g0) * 100).toFixed(0)}%）`;
+  }
+  $("vaNz").oninput = () => { $("vaNzV").textContent = noise().toFixed(1); };
+  $("vaPos").onchange = draw;
+  $("vaDraw").onclick = draw;
+  draw();
+})();
+
+/* ============ 互动 2-B：优势柱状图 ============ */
+(function () {
+  const cv = $("advStage"), ctx = cv.getContext("2d"), W = 380, H = 240;
+  const Q = [3.0, 1.2, 2.2, 0.4];
+  const NAMES = ["A", "B", "C", "D"];
+  function beta() { return +$("advB").value / 10; }
+  function draw() {
+    const b = beta(), p = softmax(Q.map(q => b * q));
+    const V = p.reduce((s, pi, i) => s + pi * Q[i], 0);
+    ctx.clearRect(0, 0, W, H);
+    const padL = 36, padB = 40, padT = 16, base = H - padB;
+    const qmax = 3.4, scaleY = (base - padT) / qmax;
+    const Yv = v => base - v * scaleY;
+    // 轴
+    ctx.strokeStyle = "#cdd8d6"; ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, base); ctx.lineTo(W - 10, base); ctx.stroke();
+    const bw = (W - padL - 24) / 4;
+    for (let i = 0; i < 4; i++) {
+      const x = padL + 12 + i * bw, w = bw * 0.6;
+      // Q 柱
+      ctx.fillStyle = "#cfe2e3"; ctx.fillRect(x, Yv(Q[i]), w, Q[i] * scaleY);
+      // 优势部分着色
+      const A = Q[i] - V;
+      if (A >= 0) { ctx.fillStyle = "rgba(46,139,87,0.75)"; ctx.fillRect(x, Yv(Q[i]), w, (Q[i] - V) * scaleY); }
+      else { ctx.fillStyle = "rgba(192,57,43,0.6)"; ctx.fillRect(x, Yv(V), w, (V - Q[i]) * scaleY); }
+      ctx.fillStyle = "#233"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(NAMES[i], x + w / 2, base + 14);
+      ctx.fillText("π=" + (p[i] * 100).toFixed(0) + "%", x + w / 2, base + 30);
+      ctx.fillStyle = A >= 0 ? "#2e6b45" : "#b2452f";
+      ctx.fillText("A=" + A.toFixed(2), x + w / 2, Yv(Q[i]) - 6);
+    }
+    // V 水平线
+    ctx.strokeStyle = "#0c7c8c"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(padL, Yv(V)); ctx.lineTo(W - 10, Yv(V)); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = "#0c7c8c"; ctx.textAlign = "left"; ctx.fillText("V = " + V.toFixed(2) + "（平均水平）", padL + 4, Yv(V) - 5);
+    $("advOut").textContent =
+      `β = ${b.toFixed(1)}（贪婪度）\nV(s) = Σ π(a)Q(a) = ${V.toFixed(3)}\n` +
+      `优势 A(a) = Q(a) − V：\n  ` + NAMES.map((n, i) => `${n}:${(Q[i] - V).toFixed(2)}`).join("  ") +
+      `\n正优势(绿)该加大概率，负优势(红)该减小。`;
+  }
+  $("advB").oninput = () => { $("advBV").textContent = beta().toFixed(1); draw(); };
+  draw();
+})();
+
+/* ============ 互动 2-C：有无基线的学习曲线 ============ */
+(function () {
+  const TRUE = [6.5, 5.2, 5.8, 4.6], best = 0;
+  let h0, h1, running;
+  function lr() { return +$("cvLr").value / 100; }
+  function reset() { h0 = []; h1 = []; draw(); }
+  function train() {
+    const a0 = [0, 0, 0, 0], a1 = [0, 0, 0, 0]; let bsl = 0, cnt = 0;
+    h0 = []; h1 = [];
+    for (let t = 0; t < 1500; t++) {
+      // 两个学习者各按自己的策略采样，但用同一个随机数 u 驱动，尽量公平对比
+      const p0 = softmax(a0), p1 = softmax(a1);
+      const u = Math.random(), r0a = sampleByU(p0, u), r1a = sampleByU(p1, u);
+      const noiseV = gauss() * 0.5;
+      const R0 = TRUE[r0a] + noiseV, R1 = TRUE[r1a] + noiseV;
+      // 无基线
+      for (let j = 0; j < 4; j++) a0[j] += lr() * R0 * ((j === r0a ? 1 : 0) - p0[j]);
+      // 有基线（running mean）
+      cnt++; bsl += (R1 - bsl) / cnt;
+      for (let j = 0; j < 4; j++) a1[j] += lr() * (R1 - bsl) * ((j === r1a ? 1 : 0) - p1[j]);
+      if (t % 10 === 0) { h0.push(softmax(a0)[best]); h1.push(softmax(a1)[best]); }
+    }
+    draw();
+  }
+  function sampleByU(p, u) { let c = 0; for (let i = 0; i < p.length; i++) { c += p[i]; if (u < c) return i; } return p.length - 1; }
+  function draw() {
+    lineChart($("cvChart"), [
+      { data: h0.length ? h0 : [0.25], color: "#c0392b", label: "无基线" },
+      { data: h1.length ? h1 : [0.25], color: "#0c7c8c", label: "有基线" },
+    ], { ymin: 0, ymax: 1, hline: { y: 1, label: "理想=1", color: "#bbb" }, xLabel: "训练步（×10）", yLabel: "最优动作概率" });
+    $("cvOut").textContent = h0.length ?
+      `最终最优动作概率：无基线 ${(h0[h0.length - 1] * 100).toFixed(1)}%  vs  有基线 ${(h1[h1.length - 1] * 100).toFixed(1)}%` :
+      "点「训练」开始。";
+  }
+  $("cvLr").oninput = () => { $("cvLrV").textContent = lr().toFixed(2); };
+  $("cvRun").onclick = train;
+  $("cvReset").onclick = reset;
+  reset();
+})();
+</script>
+</body>
+</html>
